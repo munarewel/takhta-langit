@@ -5680,11 +5680,11 @@ function drawWorld(){
       const spr=unitSprite(u,u.mounted?'side':u.dir,u.race==='monster'?fr:f);
       if(u.downed){ drawLying(g,spr,it.x,it.y,u.flip,1); const left=clamp((u.downed.until-G.step)/(DAY*.55),0,1); g.fillStyle='rgba(0,0,0,.6)'; g.fillRect(it.x-7,it.y-12,14,2); g.fillStyle='#e0645a'; g.fillRect(it.x-7,it.y-12,14*left,2); if(Math.floor(performance.now()/300)%2){ g.fillStyle='#ff4a3a'; g.fillRect(it.x-1,it.y-19,2,4); g.fillRect(it.x-1,it.y-14,2,1); } continue; }
       if(u.mounted&&u.mounted.cart){ const cx=Math.round(it.x)+(u.flip?12:-22), cy=Math.round(it.y); g.fillStyle='#7a5032'; g.fillRect(cx,cy-10,12,6); g.fillStyle='#e8dcc0'; g.fillRect(cx+1,cy-15,10,5); g.fillStyle='#d8ccb0'; g.fillRect(cx+1,cy-15,10,1); g.fillStyle='#3a2a1a'; g.fillRect(cx+1,cy-4,3,3); g.fillRect(cx+8,cy-4,3,3); g.fillStyle='#6a4a2a'; g.fillRect(u.flip?cx-4:cx+12,cy-8,4,1); }
-      g.save();
-      if(u.flip){ g.translate(Math.round(it.x)*2,0); g.scale(-1,1); }
       if(u.mountMon&&u.race!=='monster'&&!u.inside){ const mm=MON[u.mountMon]; const ms=monSprite({k:mm.k,c:mm.c,race:mm.race,job:mm.job,eye:mm.eye},moving?fr:0); const sc=Math.min(1.25,Math.max(.95,mm.sc||1));
         if(u.cart){ const cx=Math.round(it.x)+(u.flip?14:-26), cy=Math.round(it.y); g.fillStyle='#6a4a2a'; g.fillRect(cx,cy-10,14,6); g.fillStyle='#c8a060'; g.fillRect(cx+1,cy-15,12,5); g.fillStyle='#e8d0a0'; g.fillRect(cx+1,cy-15,12,1); g.fillStyle='#2a1a10'; g.fillRect(cx+1,cy-4,3,3); g.fillRect(cx+10,cy-4,3,3); }
         g.save(); if(u.flip){ g.translate(Math.round(it.x)*2,0); g.scale(-1,1); } g.drawImage(ms,Math.round(it.x)-FX*sc,Math.round(it.y)-FY*sc,ms.width*sc,ms.height*sc); g.drawImage(spr,Math.round(it.x)-FX,Math.round(it.y)-FY-9); g.restore(); continue; }
+      g.save();
+      if(u.flip){ g.translate(Math.round(it.x)*2,0); g.scale(-1,1); }
       if(u.hq&&G.hv){ const gq=G.hv.groups.find(x=>x.id===u.hq); if(gq&&gq.carcass&&gq.leader===u.id){ const cm=MON[gq.carcass.mk]; drawLying(g,monSprite({k:cm.k,c:cm.c,race:cm.race,job:cm.job,eye:cm.eye},0),it.x+(u.flip?14:-14),it.y,u.flip,0); } }
       { const V=u.variant&&VARIANTS[u.variant]; const vs=V&&V.tint?tintSprite(spr,V.tint,'V|'+u.mk+'|'+u.variant+'|'+fr):spr; const sc=(u.race==='monster'&&MON[u.mk]&&MON[u.mk].sc||1)*(V&&V.scale||1);
         if(sc!==1) g.drawImage(vs,Math.round(it.x)-FX*sc,Math.round(it.y)-FY*sc,vs.width*sc,vs.height*sc); else g.drawImage(vs,Math.round(it.x)-FX,Math.round(it.y)-FY); }
@@ -5893,7 +5893,7 @@ function atlReset(){
    kanvas sumber (medan berkedip/tertukar, layar beku). Dengan mode CPU,
    GPU hanya menerima satu gambar jadi per frame. */
 (function(){
-  let gpu=false; try{ gpu=localStorage.getItem('tl_gpu')==='1'; }catch(e){}
+  let gpu=false; try{ gpu=localStorage.getItem('tl_cpu')!=='1'; }catch(e){}
   if(gpu) return;
   const og=HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext=function(type,opt){
