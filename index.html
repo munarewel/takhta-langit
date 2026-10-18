@@ -1039,7 +1039,7 @@ function succeed(k,old){
 
 /* ---------- karier ---------- */
 function assignCareer(u){
-  if(BERKAT[u.b]&&BERKAT[u.b].hv&&isAdult(u)){ u.career=BERKAT[u.b].n==='Hunter'?'hunter':'kurir'; return; }
+  if(BERKAT[u.b]&&BERKAT[u.b].hv&&isAdult(u)){ u.career=BERKAT[u.b].n==='Hunter'||BERKAT[u.b].n==='Hunter & Tamer'?'hunter':'kurir'; return; }
   if(u.royal&&['Raja','Ratu','Permaisuri','Pangeran Konsor','Selir'].includes(u.title)) { u.career='istana'; return; }
   const role=roleOf(u);
   if(tamerInfo(u)){ u.career='petualang'; return; }
@@ -1109,6 +1109,7 @@ function chooseTask(u){
   if(u.flags.haul){ haulStep(u); if(u.task) return; }
   if(u.ally){ allyStep(u); if(u.task) return; }
   if(u.hq&&!isNight()){ u.task={k:'hq'}; return; }
+  if(libraryTask(u)) return;
   if(u.dungeonLord){ u.inside=true; u.task={k:'idle',t:200}; return; }
   if(u.flags.murder&&isNight()&&isAdult(u)&&murderTask(u)) return;
   if(t&&alarmOn(t)&&!canFight(u)&&home){ const d=bldDoor(home); goTo(u,d.x,d.y); u.task={k:'sleep'}; return; }
@@ -1429,6 +1430,7 @@ function runTask(u){
     case 'cook': cookStep(u,k); break;
     case 'hq': hqStep(u); break;
     case 'ally': allyStep(u); break;
+    case 'read': readStep(u,k); break;
     case 'haul': haulStep(u); break;
     case 'courier': courierStep(u,k); break;
     case 'bath': bathStep(u,k); break;
@@ -2210,7 +2212,7 @@ function yearly(){
   for(const d of G.dungeons){ if(!d.demon&&d.maxFloor>=8&&yearInt()>=18&&G.dungeons.filter(x=>x.demon).length<5&&rnd()<.025){ d.demon=true; log(`Kabar buruk: Raja Iblis bersemayam di dasar ${d.name}.`,'war',{x:d.x*TS,y:d.y*TS}); } }
   G.demonCount=G.dungeons.filter(d=>d.demon).length;
   { const dm=G.dungeons.filter(d=>d.demon); for(const d of dm){ const nt=G.towns.slice().sort((a,b)=>dist(a.cx,a.cy,d.x,d.y)-dist(b.cx,b.cy,d.x,d.y))[0]; if(nt&&(nt.pop||0)<30) continue; if(rnd()<.28/Math.max(1,dm.length/2)) spawnWarband(d); } }
-  if(G.demonCount>=5&&!G.prophecy&&!G.units.some(u=>!u.dead&&u.b===BIDX('Pahlawan'))){ G.prophecy=true; log('Nubuat terpenuhi: lima Raja Iblis bersemayam di bawah tanah. Anak berikutnya yang lahir di dunia akan membawa berkat Pahlawan.','hero'); }
+  if(G.demonCount>=5&&!G.prophecy&&!G.units.some(u=>!u.dead&&u.b===BIDX('Pahlawan'))){ G.prophecy=true; log('Nubuat terpenuhi: lima Raja Iblis bersemayam di bawah tanah. Anak berikutnya yang lahir di dunia akan membawa berkat Pahlawan dan mewarisi sifat ksatria Zenith the True Hero, pahlawan pertama yang memusnahkan True Demon Lord dengan Final Slash.','hero'); }
   if(G.dungeons.length<8&&rnd()<.18) placeDungeon(false);
   if(G.nests.length<16&&rnd()<.3) placeNest();
   for(let i=0;i<MW*MH;i++) if(G.trees[i]===2&&rnd()<.25){ G.trees[i]=1; (G.dirtyTiles=G.dirtyTiles||[]).push([i%MW,(i/MW)|0]); }
@@ -2515,6 +2517,7 @@ function fxTick(v){
 
 /* ---------- serangan biasa ---------- */
 function basicAttack(u,e,rng){
+  if(u.flags&&u.flags.heroSword&&finalSlash(u,e)) return;
   const def=u.race==='monster'?MON[u.mk]:null;
   let dmg=(u.atk+wAtk(u.weapon)*.8)*(.75+rnd()*.5)*(u.race==='monster'?1:(.9+(u.iq||100)/1000)); if(has(u,'Kuat')) dmg*=1.05; if(hasFx(u,'curse')) dmg*=.6;
   const ranged=rng>20;
@@ -3415,7 +3418,7 @@ function planDungeon(p){
     if(f===d.maxFloor&&d.demon){
       ev.push({t:T,k:'boss',f,name:L?L.name:'Raja Iblis'});
       const lp=(L?L.lvl:35)*3; const pw2=dungeonPower(alive);
-      if(rnd()<pw2/(pw2+diff*2+lp)){ lordWin=true; ev.push({t:T+40,k:'bosswin',f}); loot+=500+(d.soul||0); }
+      if(alive.some(m=>m.flags.heroSword)&&rnd()<.85||rnd()<pw2/(pw2+diff*2+lp)){ lordWin=true; ev.push({t:T+40,k:'bosswin',f}); loot+=500+(d.soul||0); }
       else { for(const m of alive.slice()) if(rnd()<.5){ ev.push({t:T+20+ri(0,15),k:'death',uid:m.id,f,cause:`dikalahkan Raja Iblis ${L?L.name:''} di ${d.name}`,soul:20+m.lvl*4}); alive=alive.filter(x=>x!==m); } }
       T+=46; break;
     }
@@ -4031,11 +4034,11 @@ function guildRecruit(t,people){
 
 /* ---------- harian & tahunan ---------- */
 function daily6(){
-  legendDaily(); allianceDaily();
+  legendDaily(); allianceDaily(); daily10();
   for(const t of G.towns){ const people=G.units.filter(u=>!u.dead&&u.town===t.id&&u.race!=='monster'); pantryDaily(t,people); armorDaily(t); shopsDaily(t,people); guildRecruit(t,people); soloParties(t); }
   for(const u of G.units) if(!u.dead&&u.race!=='monster'&&tamerInfo(u)&&tamerInfo(u).share) recalcStats(u);
 }
-function yearly6(){ legendYearly(); seaYearly(); recipesSpread(); secessionYearly(); }
+function yearly6(){ yearly10(); legendYearly(); seaYearly(); recipesSpread(); secessionYearly(); }
 
 /* =====================================================================
    SIMULASI 7: rakyat memisahkan diri & mendirikan kerajaan baru,
@@ -4240,6 +4243,7 @@ function hvLand(){
   log(`Para Hunter mendarat. ${vet.name} the Veteran Hunter, pria berbekas luka cakaran di wajahnya, berjalan menuju istana terdekat untuk meminta izin tinggal.`,'god',{x:sh.x,y:sh.y});
 }
 function hvOutfit(u){
+  if(BERKAT[u.b].n==='Hunter & Tamer'){ htOutfit(u); return; }
   if(BERKAT[u.b].n==='Hunter'){ equip(u,{id:newId(),name:pick(HV_WEAPONS),type:'Hunter',mat:'besi',rar:2,atk:10+Math.round(u.lvl*.5),maker:null,makerName:'Hunter Village',y:yearInt(),kills:0,owners:[]},'hadiah'); hvNeko(u); }
   if(BERKAT[u.b].n==='Tamer'){ u.mountMon=pick(MOUNT_BEASTS); if(rnd()<.6) u.cart=true; }
 }
@@ -4330,11 +4334,13 @@ function hvFormGroups(t){
   const hv=G.hv;
   const free=G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='hunter'&&isAdult(u)&&!u.hq&&!u.sick&&!u.downed&&!u.patient&&!u.possessed&&u.hp>u.maxHp*.65);
   for(const q of hv.quests){
-    if(q.taken||free.length<(q.type==='hunt'?3:2)) continue;
     if(q.type==='hunt'){ const m=U(q.target); if(!m||m.dead){ q.done=true; continue; } }
-    const n=Math.min(q.size||4,4,free.length);
-    const first=free.splice(ri(0,free.length-1),1)[0]; const mem=[first];
-    while(mem.length<n&&free.length){ free.sort((a,b)=>((a.flags.lastMates||[]).includes(first.id)?1:0)-((b.flags.lastMates||[]).includes(first.id)?1:0)+rnd()*.8-.4); mem.push(free.shift()); }
+    const elig=free.filter(u=>hrankAllowed(u,q));
+    if(q.taken||elig.length<(q.type==='hunt'?3:2)) continue;
+    const n=Math.min(q.size||4,4,elig.length);
+    const first=elig.splice(ri(0,elig.length-1),1)[0]; const mem=[first];
+    while(mem.length<n&&elig.length){ elig.sort((a,b)=>((a.flags.lastMates||[]).includes(first.id)?1:0)-((b.flags.lastMates||[]).includes(first.id)?1:0)+rnd()*.8-.4); mem.push(elig.shift()); }
+    for(const u of mem){ const i=free.indexOf(u); if(i>=0) free.splice(i,1); }
     const g={id:newId(),q:q.id,members:mem.map(u=>u.id),leader:first.id,state:'go',age:0,kills:0,carcass:null};
     hv.groups.push(g); q.taken=g.id;
     for(const u of mem){ u.hq=g.id; u.task=null; u.path=[]; u.flags.lastMates=mem.filter(v=>v!==u).map(v=>v.id); for(const v of mem) if(v!==u){ const r=relOf(u,v.id); r.f=Math.min(100,r.f+3); } }
@@ -4394,7 +4400,7 @@ const MAT_WORD=m=>['wyvern','dragonW','dragonE','tyrvern','shadowWyvern','nulley
 function hvComplete(g,q){
   const t=hvTown(); const mem=g.members.map(U).filter(v=>v&&!v.dead);
   if(!g.fail||g.carcass||g.slain){
-    const pay=q.reward; hvFund(-pay*.3); for(const m of mem){ m.gold+=pay/mem.length; gainXp(m,15+pay*.2); m.flags.hquests=(m.flags.hquests||0)+1; }
+    const pay=q.reward; hvFund(-pay*.3); for(const m of mem){ m.gold+=pay/mem.length; gainXp(m,15+pay*.2); m.flags.hquests=(m.flags.hquests||0)+1; hrankGain(m,q); }
     if(g.carcass){ const rk=RANK_ORDER.indexOf(MON[g.carcass.mk].rank); const mat=`${MAT_WORD(g.carcass.mk)} ${g.carcass.name}`; const qn=ri(3,5)+(rk>=6?2:0);
       G.hv.mat[mat]=(G.hv.mat[mat]||0)+qn; G.hv.matMk[mat]=g.carcass.mk; G.hv.matOwner=G.hv.matOwner||{}; G.hv.matOwner[mat]=mem.map(v=>v.id);
       if(t){ t.stock.food+=12+rk*6; if(MON_DROP[g.carcass.mk]) addIngr(t,MON_DROP[g.carcass.mk],3); }
@@ -4432,6 +4438,12 @@ function hvCraftDaily(t){
 function licenseUnit(u,why){
   const t=hvTown(), k=hvKing(); if(!t||!k) return;
   const old=BERKAT[u.b].n;
+  if(has(u,'Pencinta Alam')&&has(u,'Pantang Menyerah')){ const old=BERKAT[u.b].n; u.flags.formerBerkat=old; u.b=BIDX('Hunter & Tamer'); u.jobOverride=null; u.revealed=true; recalcStats(u);
+    if(u.party){ const p=partyOf(u); if(p) partyLeave(p,u,'pindah ke Hunter Village'); } if(u.royal) u.royal=null; if(u.title&&!['Kepala Desa'].includes(u.title)) u.title=null;
+    u.town=t.id; u.kingdom=k.id; const tent=G.blds.find(b=>b.town===t.id&&b.type==='tenda'); u.home=tent?tent.id:null; u.career=null; assignCareer(u); hvOutfit(u); u.flags.hrank=Math.max(hrank(u),1);
+    G.hv.licensed++; hist(u,`lulus ujian lisensi sebagai Hunter & Tamer, seperti Arthur the Red Dragon (berkat lama: ${old})`);
+    log(`Balai Lisensi gempar! ${fullName(u)}, seorang Pencinta Alam yang Pantang Menyerah, lulus ujian sebagai Hunter & Tamer. Belum pernah ada yang menyandang dua peran itu sejak Arthur the Red Dragon. Ia keluar menunggangi ${MON[u.mountMon].n}.`,'hero',{x:u.x,y:u.y});
+    return 'Hunter & Tamer'; }
   const tamer=!!tamerInfo(u)||has(u,'Pencinta Alam')||['ternak','buru'].includes(BERKAT[u.b].role)&&rnd()<.5;
   u.flags.formerBerkat=old; u.b=BIDX(tamer?'Tamer':'Hunter'); u.jobOverride=null; u.revealed=true; recalcStats(u);
   if(u.party){ const p=partyOf(u); if(p) partyLeave(p,u,'pindah ke Hunter Village'); }
@@ -4501,6 +4513,7 @@ function hvDaily(){
   const hv=G.hv; if(!hv||hv.state!=='founded') return;
   const t=hvTown(), k=hvKing(); if(!t||!k||!k.alive) return;
   k.tax=0;
+  { const v=U(hv.vet); if(!v||v.dead) vetSuccession(U(hv.heir)); }
   hvQuestsDaily(t); hvFormGroups(t); hvCraftDaily(t); hvLicenseDaily(t);
   const hunters=G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='hunter').length;
   t.stock.food+=hunters*.4;
@@ -4536,6 +4549,7 @@ function nekoCarry(m,o){
 function hvWatchdog(){
   const hv=G.hv; hv.since=hv.since||{}; if(hv.since.state!==hv.state){ hv.since={state:hv.state,at:G.step}; }
   let vet=U(hv.vet);
+  if((!vet||vet.dead)&&hv.state==='founded'){ vetSuccession(U(hv.heir)); vet=U(hv.vet); if(!vet||vet.dead) return; }
   if(!vet||vet.dead){
     const crew=hv.crew.map(U).filter(u=>u&&!u.dead);
     if(!crew.length){ hv.state='left'; log('Seluruh rombongan Hunter tewas sebelum sempat mendirikan desa.','war'); return; }
@@ -4791,6 +4805,179 @@ function allyMod(v,src,amt){
 
 const ALLY_MIN=.15;
 function allyRatio(us,m){ const p=us.reduce((s,u)=>s+(u.atk+wAtk(u.weapon)*.8)*(u.maxHp+armorDef(u.armorItem)*6),0); const def=MON[m.mk]; return p*1.3/((m.maxHp)*(def.atk)); }
+
+/* =====================================================================
+   SIMULASI 10: Perpustakaan & lore, Hunter & Tamer (warisan Arthur),
+   peringkat Hunter (Low/Mid/High/Great/Veteran), patung Arthur,
+   Zenith the True Hero & Pedang Pahlawan
+   ===================================================================== */
+BLD.perpus={n:'Perpustakaan',w:6,h:5,work:1000,wood:35,stone:20};
+BLD.patung={n:'Patung Arthur',w:3,h:3,work:400,wood:0,stone:30};
+BERKAT.push({n:'Hunter & Tamer',s:5,role:'hunter',job:'hunterHV',hv:1});
+SIFAT['Ksatria Zenith']='Mewarisi sifat ksatria Zenith the True Hero. Tidak pernah gentar di depan iblis.';
+
+/* ---------- lore ---------- */
+const LORE=[
+ {id:'ht',t:'Sejarah Hunter dan Tamer',by:'Arsip Guild Hall, disalin ulang tiap generasi',where:'all',
+  p:['Tiga ribu tahun lalu, Hunter dan Tamer adalah dua bangsa yang saling membenci.',
+     'Hunter menganggap Tamer makhluk aneh, karena mereka mencintai binatang buas yang semestinya diburu. Tamer menganggap Hunter makhluk beringas yang tak pernah puas berburu, sampai seluruh ekosistem hancur di belakang mereka.',
+     'Lalu datanglah Chaotic Dragon: naga hitam pekat yang diselimuti aura ungu. Ia membakar desa Hunter dan desa Tamer tanpa membedakan keduanya. Kekacauan terjadi di mana-mana, dan untuk pertama kalinya kedua bangsa sama-sama tak berdaya.',
+     'Suatu hari, seorang pria muncul menunggangi seekor Red Dragon. Ia mengenakan zirah Red Dragon dan menghunus pedang Red Dragon. Namanya Arthur the Red Dragon, orang pertama di dunia yang memegang dua peran sekaligus: Hunter dan Tamer.',
+     'Arthur memusnahkan Chaotic Dragon seorang diri.',
+     'Beberapa bulan kemudian, perjanjian damai ditandatangani. Sejak hari itu Hunter dan Tamer hidup berdampingan dan saling membantu. Ideologi pun berubah: Hunter berburu untuk menahan ledakan populasi monster, bukan demi kesenangan. Tamer (Rider) membantu urusan transportasi, dan hanya sesekali bertarung, itu pun di wilayah desa mereka sendiri, bila ada monster lemah yang menerobos masuk.',
+     'Legenda mengatakan: hanya mereka yang memiliki sifat Pencinta Alam sekaligus Pantang Menyerah yang akan menerima berkat Hunter & Tamer saat ujian lisensi di Hunter Village.',
+     'Karena itulah di setiap Hunter Village berdiri patung Arthur, untuk menghormati sang pendahulu.']},
+ {id:'rank',t:'Tata Peringkat Hunter',by:'Balai Lisensi',where:'hv',
+  p:['Low Rank: peringkat awal. Tugasnya mengumpulkan bahan (gathering). Terus jalankan misi sampai naik peringkat.',
+     'Mid Rank: misi slaying, membasmi kawanan monster kroco.',
+     'High Rank: misi hunt, memburu monster peringkat B sampai S.',
+     'Great Rank: misi terberat, memburu monster S dan SS, bahkan SSS bila ada.',
+     'Veteran: Hunter yang pensiun. Ia bebas memilih: tetap berburu di dunia ini, pindah ke dunia lain, mencari pasangan hidup, mendirikan desanya sendiri di dunia lain, atau menjadi Veteran terkuat di desa dan menunggu Veteran pertama wafat atau pensiun untuk menggantikannya.']},
+ {id:'zenith',t:'Zenith the True Hero',by:'Kitab Kuil, gulungan tertua',where:'all',
+  p:['Dahulu kala, dunia berada di ambang kehancuran. True Demon Lord bangkit, dan tidak ada kerajaan yang sanggup berdiri di hadapannya.',
+     'Saat itulah seorang pahlawan datang: Zenith, pahlawan pertama di dunia ini.',
+     'Dengan satu tebasan terakhir, Final Slash, True Demon Lord musnah. Dunia kembali damai.',
+     'Nubuat berkata: ketika lima Raja Iblis muncul kembali, seorang pahlawan akan lahir dan mewarisi sifat ksatria Zenith. Bila ia mencapai Lv 50, Pedang Pahlawan akan menjawab panggilannya.']},
+];
+function libraryBooks(t){
+  const hv=t&&t.hunter; const books=LORE.filter(b=>b.where==='all'||b.where==='hv'&&(hv||G.hv&&G.hv.state==='founded')).map(b=>({...b,lore:1}));
+  // buku masa kini, ditulis dari kronik dunia
+  const big=G.chron.filter(c=>c.kind==='hero'||c.kind==='war');
+  if(big.length) books.push({id:'kini',t:`Kabar Terkini (Tahun ${yearInt()})`,by:'Juru tulis perpustakaan',p:big.slice(0,8).map(c=>`Th ${c.y}: ${c.text}`)});
+  const dec={}; for(const c of big){ const d=Math.floor(c.y/10)*10; (dec[d]=dec[d]||[]).push(c); }
+  for(const a of (G.annals||[]).slice().reverse().slice(0,12)) books.push({id:'dek'+a.d,t:`Kronik Tahun ${a.d}–${a.d+9}`,by:'Para sejarawan',p:a.p});
+  if(G.legendLog&&G.legendLog.length) books.push({id:'leg',t:'Bestiari Legenda',by:'Para Bard',p:G.legendLog.slice(0,12)});
+  if(G.allyLog&&G.allyLog.length) books.push({id:'ally',t:'Catatan Aliansi Perburuan',by:'Balai Lelang',p:G.allyLog.slice(0,12)});
+  const k=t&&K(t.kingdom); if(k&&!k.hunter){ const kings=G.units.filter(u=>u.title&&/Raja|Ratu/.test(u.title)&&u.kingdom===k.id||u.id===k.king).slice(0,10); books.push({id:'k'+k.id,t:`Riwayat ${k.name}`,by:'Arsip istana',p:[`Didirikan pada tahun ${k.founded}.`,`Penguasa saat ini: ${U(k.king)?fullName(U(k.king)):'tidak ada'}.`,`Kas kerajaan: ${Math.round(k.treasury)} emas.`].concat(kings.filter(u=>u.id!==k.king).map(u=>`${fullName(u)}${u.dead?' (wafat)':''}`))}); }
+  const heroes=G.units.filter(u=>u.race!=='monster'&&!u.dead&&u.lvl>=20).sort((a,b)=>b.lvl-a.lvl).slice(0,8);
+  if(heroes.length) books.push({id:'tokoh',t:'Tokoh Termasyhur Masa Kini',by:'Juru tulis perpustakaan',p:heroes.map(u=>`${fullName(u)} · Lv ${u.lvl} · ${BERKAT[u.b].n}${u.flags.hrank!=null?' · '+HRANK[u.flags.hrank]:''}`)});
+  return books;
+}
+function libraryDaily(){
+  if(yearInt()<3) return;
+  for(const t of G.towns){
+    if(!t.hunter&&K(t.kingdom)?.capital!==t.id) continue; if(townBuildings(t,'perpus').length) continue;
+    if(t.hunter||(t.stock.wood>=10||yearInt()>=6)&&rnd()<.1){ const s=freeSlot(t)||findSpot(t,BLD.perpus.w,BLD.perpus.h); if(!s) continue; addBuilding(t,'perpus',s); }
+  }
+  const ht=hvTown(); if(ht&&!townBuildings(ht,'patung').length){ const s=findSpot(ht,3,3); if(s){ const b=addBuilding(ht,'patung',s); b.done=true; b.progress=b.work; ht.queue=ht.queue.filter(id=>id!==b.id); log('Di tengah Hunter Village didirikan patung Arthur the Red Dragon menunggangi naganya, untuk menghormati sang pendahulu yang mendamaikan Hunter dan Tamer.','life',{x:(s.x+1.5)*TS,y:(s.y+2)*TS}); } }
+}
+function findSpot(t,w,h){
+  for(let i=0;i<120;i++){ const a=rnd()*Math.PI*2, r=4+rnd()*(t.R+6); const x=Math.round(t.cx+Math.cos(a)*r), y=Math.round(t.cy+Math.sin(a)*r*.8);
+    if(!rectFree(t,x-1,y-1,w+2,h+2)) continue; if(G.blds.some(b=>x<b.x+b.w+1&&x+w+1>b.x&&y<b.y+b.h+1&&y+h+1>b.y)) continue;
+    occupy(x,y,w,h,4); G.dirty.terrain=true; return {x,y}; }
+  return null;
+}
+/* warga berkunjung ke perpustakaan */
+function libraryTask(u){
+  if(!isAdult(u)&&stageOf(u)!=='remaja') return false;
+  if(isNight()||rnd()>.012) return false;
+  const t=TN(u.town); if(!t) return false; const b=townBuildings(t,'perpus').find(x=>x.done); if(!b) return false;
+  const d=bldDoor(b); goTo(u,d.x+ri(-6,6),d.y+2); u.task={k:'read',b:b.id,t:ri(90,180)}; return true;
+}
+function readStep(u,k){
+  const b=B(k.b); if(!b){ u.task=null; return; }
+  if(dist(u.x,u.y,bldDoor(b).x,bldDoor(b).y)<14) u.inside=true;
+  if(--k.t<=0){ u.inside=false; u.task=null; u.flags.read=(u.flags.read||0)+1; gainXp(u,1.2); if(u.iq&&u.iq<150&&rnd()<.04) u.iq++;
+    const t=TN(u.town); const books=libraryBooks(t); const bk=pick(books); if(bk){ u.flags.lastBook=bk.t; if(rnd()<.25) hist(u,`membaca "${bk.t}" di perpustakaan`); }
+    if(bk&&bk.id==='ht'&&has(u,'Pencinta Alam')&&has(u,'Pantang Menyerah')&&!isHV(u)&&!u.flags.arthurDream){ u.flags.arthurDream=1; hist(u,'bermimpi menunggangi naga seperti Arthur setelah membaca kisahnya'); }
+  }
+}
+
+/* ---------- peringkat Hunter ---------- */
+const HRANK=['Low Rank','Mid Rank','High Rank','Great Rank','Veteran'];
+function hrank(u){ if(u.flags.hrank==null) u.flags.hrank=u.id===(G.hv&&G.hv.vet)?4:u.lvl>=26?3:u.lvl>=16?2:u.lvl>=8?1:0; return u.flags.hrank; }
+function hrankAllowed(u,q){
+  const r=hrank(u);
+  if(q.type==='gather'||q.type==='ekspedisi') return true;
+  if(q.type==='slay') return r>=1;
+  if(q.type==='hunt'){ const m=U(q.target); const rk=m?RANK_ORDER.indexOf(MON[m.mk].rank):4; return rk>=6?r>=3:r>=2; }
+  return true;
+}
+function hrankGain(u,q){
+  const pts={gather:1,ekspedisi:1,slay:2,hunt:3}[q.type]||1;
+  u.flags.hpts=(u.flags.hpts||0)+pts;
+  const r=hrank(u); if(r>=3) return;
+  const need=[[4,6],[10,12],[22,20]][r];
+  if(u.flags.hpts>=need[0]&&u.lvl>=need[1]){ u.flags.hrank=r+1; hist(u,`naik ke ${HRANK[r+1]} di Guild Hall`);
+    log(`Guild Hall Hunter Village: ${fullName(u)} naik ke ${HRANK[r+1]}.${r+1===3?' Kini ia boleh menerima misi monster S dan SS.':''}`,r+1>=2?'hero':'life',{x:u.x,y:u.y}); }
+}
+/* pensiun jadi Veteran & pilihan hidupnya */
+function hvVeteranYearly(){
+  const hv=G.hv; if(!hv||hv.state!=='founded') return; const t=hvTown(); if(!t) return;
+  for(const u of G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='hunter'&&!u.hq&&!u.ally)){
+    const age=ageOf(u);
+    if(u.id===hv.vet){ if(age>=68&&rnd()<.35) vetFirstRetire(u); continue; }
+    if(hrank(u)===3&&age>=46&&rnd()<.4||hrank(u)===3&&(u.flags.hpts||0)>=60&&rnd()<.25) veteranChoice(u);
+  }
+}
+function veteranChoice(u){
+  const hv=G.hv, t=hvTown(); u.flags.hrank=4; u.flags.epithet=u.flags.epithet||'the Veteran';
+  const opts=[['stay',4],['world',2],['wife',!u.spouse?3:0],['village',2],['heir',hv.heir&&U(hv.heir)&&!U(hv.heir).dead?0:3]];
+  let r=rnd()*opts.reduce((s,o)=>s+o[1],0), c='stay'; for(const [k,w] of opts){ r-=w; if(r<=0){ c=k; break; } }
+  hist(u,'pensiun dari Great Rank dan menjadi Veteran');
+  if(c==='stay'){ log(`${fullName(u)} pensiun dari Great Rank dan menjadi Veteran, tapi memilih tetap berburu di dunia ini.`,'life',{x:u.x,y:u.y}); }
+  else if(c==='heir'){ hv.heir=u.id; u.flags.vetHeir=1; log(`${fullName(u)} pensiun sebagai Veteran terkuat Hunter Village. Ia menunggu hari ketika ${U(hv.vet)?U(hv.vet).name:'sang Veteran pertama'} wafat atau pensiun, untuk menggantikannya.`,'hero',{x:u.x,y:u.y}); }
+  else if(c==='wife'){ const ks=G.towns.filter(o=>!o.hunter&&o.cap); const dt=ks.sort((a,b)=>dist(a.cx,a.cy,t.cx,t.cy)-dist(b.cx,b.cy,t.cx,t.cy))[0];
+    if(dt){ u.town=dt.id; u.kingdom=dt.kingdom; u.career='petualang'; const tent=G.blds.find(b=>b.town===dt.id&&b.type==='tenda')||G.blds.find(b=>b.town===dt.id&&b.type==='istana'); u.home=tent?tent.id:null; goTo(u,(dt.cx+1)*TS,(dt.cy+2)*TS);
+      log(`${fullName(u)} menggantung senjatanya sebagai Veteran dan pindah ke ${dt.name}. Katanya, sudah waktunya mencari pasangan hidup.`,'life',{x:u.x,y:u.y}); } }
+  else { const fam=[u,U(u.spouse),...u.children.map(U)].filter(v=>v&&!v.dead&&v.town===u.town);
+    for(const v of fam) departWorld(v,c==='village'?'mendirikan desa Hunter sendiri di dunia lain':'pindah ke dunia lain');
+    log(c==='village'?`${fullName(u)} pensiun sebagai Veteran, lalu berlayar keluar dari dunia ini${fam.length>1?` bersama ${fam.length-1} anggota keluarganya`:''} untuk mendirikan Hunter Village miliknya sendiri.`:`${fullName(u)} pensiun sebagai Veteran dan pamit pindah ke dunia lain. Kapal Hunter menjemputnya di pantai.`,'hero',{x:u.x,y:u.y}); }
+}
+function departWorld(v,why){
+  for(const id of petsOf(v)){ const m=U(id); if(m){ m.dead=true; } }
+  const h=B(v.home); if(h&&h.owner===v.id) h.owner=null;
+  if(v.party){ const p=partyOf(v); if(p) partyLeave(p,v,'pindah dunia'); }
+  hist(v,why); v.flags.departed=why; v.dead=true; v.inside=false; v.task=null; v.path=[];
+}
+function vetFirstRetire(u){
+  const hv=G.hv; const heir=U(hv.heir);
+  log(`${fullName(u)} pensiun setelah bertahun-tahun memimpin Hunter Village, lalu pamit keluar dari dunia ini.`,'hero',{x:u.x,y:u.y});
+  departWorld(u,'pensiun dan keluar dari dunia ini'); vetSuccession(heir);
+}
+function vetSuccession(pref){
+  const hv=G.hv, t=hvTown(), k=hvKing&&hvKing(); if(!t) return;
+  const nv=pref&&!pref.dead?pref:G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='hunter'&&isAdult(u)).sort((a,b)=>(b.flags.vetHeir?100:0)+hrank(b)*10+b.lvl/10-((a.flags.vetHeir?100:0)+hrank(a)*10+a.lvl/10))[0];
+  if(!nv) return;
+  hv.vet=nv.id; hv.heir=null; nv.flags.vetHeir=0; nv.flags.hrank=4; nv.flags.epithet='the Veteran Hunter'; nv.title='Kepala Desa'; nv.royal=hv.kingdom||null; const kk=K(hv.kingdom); if(kk) kk.king=nv.id;
+  log(`${nv.name} kini memimpin Hunter Village sebagai ${nv.name} the Veteran Hunter.`,'hero',{x:nv.x,y:nv.y});
+}
+
+/* ---------- Hunter & Tamer ---------- */
+const HT_MOUNTS=['redDragon','griffin','pegasus','shadowWyvern'];
+function htOutfit(u){
+  u.mountMon=rnd()<.4?'redDragon':pick(HT_MOUNTS); u.cart=false;
+  equip(u,{id:newId(),name:'Pedang Naga Merah',type:'Hunter',mat:'mithril',rar:4,atk:18+Math.round(u.lvl*.7),maker:null,makerName:'Balai Lisensi',y:yearInt(),kills:0,owners:[]},'hadiah');
+  if(!u.armorItem||armorDef(u.armorItem)<20) u.armorItem={id:newId(),name:'Zirah Naga Merah',type:'Zirah',mat:'mithril',rar:4,def:20+Math.round(u.lvl*.4),maker:null,makerName:'Balai Lisensi',y:yearInt(),armor:1,owners:[u.name]};
+  hvNeko(u);
+}
+
+/* ---------- Zenith: Pedang Pahlawan ---------- */
+function zenithCheck(u){
+  if(u.b!==BIDX('Pahlawan')) return;
+  if(u.revealed&&!has(u,'Ksatria Zenith')){ u.traits.push('Ksatria Zenith'); hist(u,'mewarisi sifat ksatria Zenith the True Hero'); }
+  if(u.lvl>=50&&!u.flags.heroSword){
+    u.flags.heroSword=1;
+    const w={id:newId(),name:'Pedang Pahlawan Zenith',type:'Pedang',mat:'adamantit',rar:5,atk:95,maker:null,makerName:'Zenith the True Hero',y:yearInt(),kills:0,owners:[],ench:{k:'suci',lvl:5,by:'Zenith'},ench2:{k:'petir',lvl:4,by:'Zenith'}};
+    equip(u,w,'warisan'); u.title='Pahlawan Sejati';
+    FX_QUEUE.push({k:'pillar',x:u.x,y:u.y,s:5,t:120});
+    log(`Langit terbelah. ${u.name} mencapai Lv 50, dan Pedang Pahlawan milik Zenith the True Hero turun menjawab panggilannya. Seperti Zenith dahulu, ia kini bisa melepaskan Final Slash.`,'hero',{x:u.x,y:u.y});
+  }
+}
+function finalSlash(u,e){
+  if(!u.flags.heroSword||e.dead) return false;
+  const def=e.race==='monster'?MON[e.mk]:null;
+  const worthy=def&&(def.demon||def.legend||RANK_ORDER.indexOf(def.rank)>=6)||e.b===BIDX('Raja Iblis');
+  if(!worthy||rnd()>.14) return false;
+  const dmg=(u.atk+wAtk(u.weapon))*6;
+  FX_QUEUE.push({k:'say',x:u.x,y:u.y-30,t:60,s:'Final Slash!'}); FX_QUEUE.push({k:'zap',x:e.x,y:e.y,t:24}); FX_QUEUE.push({k:'slash',x:e.x,y:e.y-10,t:14,flip:u.flip});
+  damage(e,dmg,u);
+  if(e.dead&&rnd()<.6) log(`${fullName(u)} melepaskan Final Slash. ${e.name} terbelah dua.`,'hero',{x:e.x,y:e.y});
+  return true;
+}
+function yearly10(){ hvVeteranYearly();
+  const y=yearInt(); if(y>0&&y%10===0){ G.annals=G.annals||[]; const d=y-10; if(!G.annals.some(a=>a.d===d)){ const es=G.chron.filter(c=>c.y>=d&&c.y<y&&(c.kind==='hero'||c.kind==='war')).slice(0,12).reverse(); G.annals.push({d,p:es.length?es.map(c=>`Th ${c.y}: ${c.text}`):['Dekade yang tenang. Tidak banyak yang patut dicatat.']}); } } }
+function daily10(){ libraryDaily(); for(const u of G.units) if(!u.dead&&u.b===BIDX('Pahlawan')) zenithCheck(u); }
 
 /* ================= SPRITE PIKSEL ================= */
 
@@ -5692,6 +5879,22 @@ function bldSprite(b){
     R(x+9,y-2,12,5,'#6a5a4a'); R(x+10,y-1,10,3,'#7ab8e0'); R(x+11,y-1,4,1,'#c8e8ff');
     for(let i=0;i<3;i++){ R(x+11+i*3,y-6-i,1,3,'#e8eef6'); R(x+12+i*3,y-9-i,1,2,'#e8eef6'); }
     R(x-14,y-9,4,3,'#3a4a6a'); wins.push([x-14,y-9,4,3]);
+  } else if(b.type==='perpus'){
+    const x=W/2, y=base-2;
+    R(x-22,y-18,44,20,stone); for(let yy=y-18;yy<y+2;yy+=4) R(x-22,yy,44,1,shade(stone,-.15));
+    for(let i=0;i<7;i++) R(x-25+i*2,y-19-i,50-i*4,1,i%2?'#2f4e8a':'#3a5a9a'); R(x-24,y-19,48,1,'#1e3060');
+    R(x-5,y-11,10,13,'#3a2616'); R(x-5,y-11,10,1,'#c8a050'); R(x-5,y-12,10,1,'#c8a050');
+    for(const cx of [-18,10]){ R(x+cx,y-13,8,8,'#3a4a6a'); wins.push([x+cx,y-13,8,8]); R(x+cx+1,y-11,2,5,'#a83a2a'); R(x+cx+3,y-12,1,6,'#3a7a4a'); R(x+cx+4,y-11,2,5,'#d8b040'); R(x+cx+6,y-12,1,6,'#6a4aa0'); }
+    R(x-4,y-30,8,6,'#f0e6d0'); R(x-4,y-30,4,6,'#e0d4b8'); R(x,y-30,1,6,'#8a6a3a'); R(x-3,y-28,2,1,'#8a6a3a'); R(x+1,y-28,2,1,'#8a6a3a');
+  } else if(b.type==='patung'){
+    const x=W/2, y=base-2, st='#a8a49a', lt='#c8c4ba', dk='#78746a';
+    R(x-10,y-6,20,8,dk); R(x-9,y-7,18,1,lt); R(x-8,y-5,16,1,lt);
+    // naga
+    R(x-9,y-16,16,8,st); R(x-9,y-16,16,1,lt); R(x+5,y-22,4,8,st); R(x+6,y-25,6,4,st); R(x+11,y-24,2,1,dk); R(x+9,y-24,1,1,'#2a2a2a');
+    R(x-13,y-14,5,2,st); R(x-15,y-13,3,1,st); R(x-7,y-8,3,3,st); R(x+3,y-8,3,3,st);
+    R(x-8,y-26,6,9,st); R(x-12,y-24,4,6,lt); R(x-6,y-28,2,2,lt);
+    // Arthur
+    R(x-1,y-24,4,7,lt); R(x-1,y-27,4,3,st); R(x,y-28,2,1,dk); R(x+3,y-33,1,12,'#d8d4ca'); R(x+2,y-24,3,1,dk);
   } else if(b.type==='lelang'){
     const x=W/2, y=base-2;
     R(x-28,y-20,56,22,'#d8c8a0'); for(let yy=y-20;yy<y+2;yy+=4) R(x-28,yy,56,1,'#c0b088');
@@ -6437,7 +6640,7 @@ function renderDetail(b){
     b.innerHTML=`<div class="card"><h3>${esc(d.name)}</h3><dl class="kv"><dt>Pemimpin</dt><dd>${ch&&!ch.dead?esc(ch.name):'tidak ada'}</dd><dt>Penghuni</dt><dd>${mem.length} · ${Object.entries(cnt).map(([k,n])=>`${n} ${MON[k].n}`).join(', ')}</dd><dt>Tawanan</dt><dd>${d.captives.length?d.captives.map(personLink).join(', '):'tidak ada'}</dd><dt>Muncul</dt><dd>Tahun ${d.born}</dd></dl><p class="sub" style="margin:0">Goblin berburu berkelompok, menyerbu desa tak bertembok, membakar rumah, dan menculik perempuan. Sarang membengkak dan memecah diri bila dibiarkan. Guild memasang quest untuk membasminya.</p><div class="row"><button class="btn warn" data-denx="1">Hancurkan dengan petir</button></div></div>`; return; }
   if(s.type==='grave'){ const t=TN(s.id); const gr=t&&(t.graves||[]).find(g=>g.pid===s.pid); const p=person(s.pid); if(!gr||!p){ b.innerHTML=''; return; }
     b.innerHTML=`<div class="card"><h3>${gr.kind==='nisan'?'Nisan kosong':'Makam'} · ${esc(gr.name)} ${esc(gr.marga||'')}</h3><p class="sub" style="margin:0;font-style:italic">${gr.missing?'Jasadnya tak pernah kembali.':'Beristirahat dengan tenang.'}</p><dl class="kv"><dt>Hidup</dt><dd>Tahun ${gr.bornY} – ${G.grave[s.pid]?.diedY??gr.y}</dd><dt>Sebab</dt><dd>${esc(G.grave[s.pid]?.cause||gr.cause||'-')}</dd><dt>Pemakaman</dt><dd>${esc(t.name)}</dd></dl><div class="row"><button class="btn" data-uid="${s.pid}">Lihat riwayat hidupnya</button></div></div>`; return; }
-  if(s.type==='bld'){ const bd=B(s.id); if(!bd){ b.innerHTML=''; return; } const t=TN(bd.town); const res=G.units.filter(u=>!u.dead&&u.home===bd.id);
+  if(s.type==='bld'){ const bd=B(s.id); if(!bd){ b.innerHTML=''; return; } if(bd.type==='perpus'||bd.type==='patung'){ b.innerHTML=libraryPanel(bd); return; } const t=TN(bd.town); const res=G.units.filter(u=>!u.dead&&u.home===bd.id);
     b.innerHTML=`<div class="card"><h3>${BLD[bd.type].n}${bd.type==='rumah'&&U(bd.owner)?` keluarga ${esc(U(bd.owner).marga)}`:''}</h3><dl class="kv"><dt>Kota</dt><dd>${t?esc(t.name):'-'}</dd><dt>Status</dt><dd>${bd.done?'Berdiri':`Dibangun ${Math.round(bd.progress/bd.work*100)}%${bd.paid?'':' (menunggu bahan)'}`}</dd>${bd.owner?`<dt>Pemilik</dt><dd>${personLink(bd.owner)}</dd>`:''}<dt>Penghuni</dt><dd>${res.length?res.map(r=>personLink(r.id)).join(', '):'-'}</dd>${bd.type==='klinik'?`<dt>Pasien</dt><dd>${G.units.filter(u=>!u.dead&&u.patient&&u.patient.b===bd.id).map(u=>personLink(u.id)).join(', ')||'tidak ada'}</dd><dt>Tabib jaga</dt><dd>${G.step-(bd.nurse||-999)<60?'ada':'tidak ada'}</dd>`:''}</dl></div>`; return; }
   if(s.type==='plot'){ const t=TN(s.id); const f=t&&t.fields[s.i]; if(!f){ b.innerHTML=''; return; }
     const st={kosong:'Kosong, siap ditanami',bibit:'Baru ditanam',tumbuh:'Sedang tumbuh',matang:'Siap panen',layu:'Layu, perlu dibersihkan'}[f.st||'kosong'];
@@ -6877,9 +7080,10 @@ function unitExtra6(u){
   return h;
 }
 function arsipHtml(){
-  const tabs=[['legenda','Legenda'],['bestiari','Bestiari'],['bahan','Bahan'],['resep','Resep']];
+  const tabs=[['legenda','Legenda'],['bestiari','Bestiari'],['bahan','Bahan'],['resep','Resep'],['perpus','Perpustakaan']];
   const head=`<div class="row" style="margin-bottom:8px">${tabs.map(([v,n])=>`<button class="chipbtn" data-ar="${v}" aria-pressed="${UI.arsip===v}">${n}</button>`).join('')}</div>`;
   let body='';
+  if(UI.arsip==='perpus') return head+perpusArsip();
   if(UI.arsip==='legenda'){
     const lairs=G.nests.filter(n=>n.legend);
     const sea=G.units.filter(u=>!u.dead&&u.flags.sea&&!u.tamer);
@@ -7078,6 +7282,7 @@ function hvHtml(k){
   const hunters=ppl.filter(u=>u.career==='hunter'), tamers=ppl.filter(u=>u.career==='kurir');
   const mats=Object.entries(hv.mat||{});
   return `<h4>Hunter Village</h4><p class="sub" style="margin:0">${hunters.length} Hunter · ${tamers.length} Tamer · ${hv.licensed||0} lisensi baru · ${hv.armors||0} zirah monster ditempa · ${hv.eggs||0} telur monster terjual</p>
+  <p class="sub" style="margin:4px 0 0">Peringkat: ${HRANK.map((n,i)=>`${n} ${hunters.filter(u=>hrank(u)===i).length}`).join(' · ')}${(()=>{ const ht=ppl.filter(u=>BERKAT[u.b].n==='Hunter & Tamer'); return ht.length?` · Hunter & Tamer: ${ht.map(u=>personLink(u.id)).join(', ')}`:''; })()}${hv.heir&&U(hv.heir)&&!U(hv.heir).dead?` · calon pengganti Veteran: ${personLink(hv.heir)}`:''}</p>
   <h4>Papan quest</h4>${hv.quests.filter(q=>!q.done).length?`<ul class="log">${hv.quests.filter(q=>!q.done).map(q=>{ const g=hv.groups.find(x=>x.id===q.taken); return `<li>${esc(q.name)} · ${q.reward} emas${g?` · <span style="color:var(--dun)">dikerjakan ${g.members.map(U).filter(Boolean).map(v=>esc(v.name)).join(', ')}</span>`:''}</li>`; }).join('')}</ul>`:'<p class="sub" style="margin:0">Kosong.</p>'}
   ${mats.length?`<h4>Bahan monster</h4><div class="chips">${mats.map(([n,q])=>`<span class="chip gold">${esc(n)} ×${q}</span>`).join('')}</div>`:''}
   ${(hv.log||[]).length?`<ul class="log">${hv.log.slice(0,6).map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:''}`;
@@ -7126,6 +7331,9 @@ function allyHtml(){
 function unitExtra9(u){
   let h=''; const al=allyOf(u);
   if(al) h+=`<dt>Aliansi</dt><dd>Memburu ${esc(MON[al.mk].n)} · ${al.state==='gather'?'berkumpul':'menyerang'}${u.flags.allyRest?' · mundur memulihkan diri':''}</dd>`;
+  if(isHV(u)&&u.career==='hunter'){ const r=hrank(u); h+=`<dt>Peringkat Hunter</dt><dd>${HRANK[r]}${u.flags.hpts?` · ${u.flags.hpts} poin misi`:''}${u.flags.vetHeir?' · calon pengganti Veteran':''}${G.hv&&G.hv.vet===u.id?' · pemimpin desa':''}</dd>`; }
+  if(u.flags.heroSword) h+=`<dt>Warisan Zenith</dt><dd>Pedang Pahlawan · Final Slash</dd>`; else if(has(u,'Ksatria Zenith')) h+=`<dt>Warisan Zenith</dt><dd>Pedang Pahlawan menunggu di Lv 50 (kini Lv ${u.lvl})</dd>`;
+  if(u.flags.read) h+=`<dt>Perpustakaan</dt><dd>${u.flags.read} kunjungan${u.flags.lastBook?` · terakhir membaca "${esc(u.flags.lastBook)}"`:''}</dd>`;
   if(u.flags.allyWins) h+=`<dt>Perburuan aliansi</dt><dd>${u.flags.allyWins} kemenangan</dd>`;
   if(u.flags.haul) h+=`<dt>Tugas Tamer</dt><dd>${u.flags.haul.phase==='go'?'Menjemput':'Menyeret'} bangkai ${esc(MON[u.flags.haul.mk].n)} ke ${esc(BLD.lelang.n)}</dd>`;
   return h;
@@ -7134,6 +7342,19 @@ function initUI6(){
   $('pbody').addEventListener('click',e=>{ const b=e.target.closest('[data-allyfocus]'); if(!b) return; const al=(G.alliances||[]).find(a=>a.id===+b.dataset.allyfocus); const m=al&&U(al.target); if(m){ centerOn(m.x,m.y,Math.max(R_.cam.z,2.4)); UI.follow=false; } });
 }
 
+function booksHtml(books){ return books.map(bk=>`<details class="book" style="border-bottom:1px solid var(--line);padding:6px 0"><summary style="cursor:pointer"><b>${esc(bk.t)}</b>${bk.lore?' <span class="sub">· naskah kuno</span>':''}</summary><div class="sub" style="margin:4px 0">${esc(bk.by||'')}</div>${bk.p.map(x=>`<p style="margin:4px 0;line-height:1.45">${esc(x)}</p>`).join('')}</details>`).join(''); }
+function libraryPanel(bd){
+  const t=TN(bd.town);
+  if(bd.type==='patung') return `<div class="card"><h3>Patung Arthur the Red Dragon</h3><p class="sub">${t?esc(t.name):''}</p><p>Arthur menunggangi Red Dragon, berzirah dan berpedang Red Dragon. Orang pertama yang menyandang peran Hunter & Tamer, yang memusnahkan Chaotic Dragon seorang diri dan mendamaikan Hunter dan Tamer tiga ribu tahun lalu.</p><p class="sub">Para Hunter menyentuh kaki patung ini sebelum berangkat berburu.</p>${(()=>{ const ht=G.units.filter(u=>!u.dead&&BERKAT[u.b].n==='Hunter & Tamer'); return ht.length?`<p>Penerus Arthur yang hidup: ${ht.map(u=>personLink(u.id)).join(', ')}</p>`:''; })()}</div>`;
+  const readers=G.units.filter(u=>!u.dead&&u.task&&u.task.k==='read'&&u.task.b===bd.id);
+  return `<div class="card"><h3>Perpustakaan ${t?esc(t.name):''}</h3><p class="sub" style="margin:0">Tempat informasi masa lalu dan masa kini terus beredar.${bd.done?'':` Masih dibangun ${Math.round(bd.progress/bd.work*100)}%.`}</p>${readers.length?`<p class="sub">Sedang membaca: ${readers.map(u=>personLink(u.id)).join(', ')}</p>`:''}${booksHtml(libraryBooks(t))}</div>`;
+}
+function perpusArsip(){
+  const libs=G.blds.filter(b=>b.type==='perpus'&&b.done);
+  if(!libs.length) return '<p class="empty">Belum ada perpustakaan yang berdiri. Kerajaan membangunnya mulai tahun 3, dan Hunter Village langsung membangun satu.</p>';
+  const t=TN(libs[0].town);
+  return `<p class="sub" style="margin:0 0 6px">${libs.length} perpustakaan berdiri: ${libs.map(b=>esc(TN(b.town)?.name||'?')).join(', ')}.</p>`+booksHtml(libraryBooks(G.hv&&hvTown()?hvTown():t));
+}
 initUI();
 initUI2();
 initUI3();
