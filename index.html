@@ -5889,6 +5889,18 @@ function atlReset(){
     return Map.prototype.set.call(this,k,v); }; };
   wrap(cache); wrap(R_.bldCache);
 })();
+/* Semua kanvas 2D dirender di CPU. Beberapa GPU HP Android salah menampilkan
+   kanvas sumber (medan berkedip/tertukar, layar beku). Dengan mode CPU,
+   GPU hanya menerima satu gambar jadi per frame. */
+(function(){
+  let gpu=false; try{ gpu=localStorage.getItem('tl_gpu')==='1'; }catch(e){}
+  if(gpu) return;
+  const og=HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext=function(type,opt){
+    if(type==='2d') opt=Object.assign({},opt||{},{willReadFrequently:true});
+    return og.call(this,type,opt);
+  };
+})();
 
 /* =====================================================================
    UI: alat GM, panel, rasuki, simpan/muat, loop
