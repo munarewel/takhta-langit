@@ -5843,6 +5843,51 @@ function fitCamera(){
 function centerOn(x,y,z){ const r={width:R_.cv.width/R_.dpr,height:R_.cv.height/R_.dpr}; if(z) R_.cam.z=z; R_.cam.x=x-r.width/2/R_.cam.z; R_.cam.y=y-r.height/2/R_.cam.z; }
 
 /* =====================================================================
+   ATLAS SPRITE: ribuan kanvas kecil dipadatkan ke beberapa lembar besar.
+   Ribuan sumber gambar terpisah membuat GPU HP sering macet (layar beku
+   sesaat walau game tetap jalan). Sekarang sprite disalin ke lembar
+   1024×1024 dan digambar dari sana.
+   ===================================================================== */
+const ATL={pages:[],cur:null,x:0,y:0,rowH:0,S:1024,packed:new WeakMap(),evicting:false};
+function atlNewPage(){ const c=document.createElement('canvas'); c.width=ATL.S; c.height=ATL.S; const g=c.getContext('2d'); g.imageSmoothingEnabled=false; ATL.cur={c,g}; ATL.pages.push(ATL.cur); ATL.x=0; ATL.y=0; ATL.rowH=0; }
+function atl(src){
+  if(!src||!(src instanceof HTMLCanvasElement)) return src;
+  const done=ATL.packed.get(src); if(done) return done;
+  const w=src.width, h=src.height;
+  if(w>256||h>256||w<1||h<1) return src;
+  if(!ATL.cur) atlNewPage();
+  if(ATL.x+w+1>ATL.S){ ATL.x=0; ATL.y+=ATL.rowH+1; ATL.rowH=0; }
+  if(ATL.y+h+1>ATL.S){ if(ATL.pages.length>=10){ atlReset(); } atlNewPage(); }
+  const P=ATL.cur;
+  P.g.drawImage(src,ATL.x,ATL.y);
+  const e={_at:P.c,sx:ATL.x,sy:ATL.y,width:w,height:h};
+  ATL.x+=w+1; ATL.rowH=Math.max(ATL.rowH,h);
+  ATL.packed.set(src,e);
+  return e;
+}
+function atlReset(){
+  // terlalu banyak sprite: kosongkan semua lalu buat ulang seperlunya
+  ATL.pages=[]; ATL.cur=null; ATL.packed=new WeakMap();
+  Map.prototype.clear.call(cache); Map.prototype.clear.call(R_.bldCache);
+}
+(function(){
+  const orig=CanvasRenderingContext2D.prototype.drawImage;
+  CanvasRenderingContext2D.prototype.drawImage=function(s,a,b,c,d,e,f,g,h){
+    if(s&&s._at){
+      if(arguments.length===3) return orig.call(this,s._at,s.sx,s.sy,s.width,s.height,a,b,s.width,s.height);
+      if(arguments.length===5) return orig.call(this,s._at,s.sx,s.sy,s.width,s.height,a,b,c,d);
+      return orig.call(this,s._at,s.sx+a,s.sy+b,c,d,e,f,g,h);
+    }
+    return orig.apply(this,arguments);
+  };
+  const wrap=m=>{ m.set=function(k,v){
+    if(v instanceof HTMLCanvasElement) v=atl(v);
+    else if(v&&typeof v==='object'&&v.c instanceof HTMLCanvasElement) v.c=atl(v.c);
+    return Map.prototype.set.call(this,k,v); }; };
+  wrap(cache); wrap(R_.bldCache);
+})();
+
+/* =====================================================================
    UI: alat GM, panel, rasuki, simpan/muat, loop
    ===================================================================== */
 const UI={sel:null,tab:'kronik',tool:'lihat',race:'manusia',mon:'slime',speed:1,follow:false,ptarget:null,wfilter:'semua',wq:'',lastPanel:0,pdirty:true};
