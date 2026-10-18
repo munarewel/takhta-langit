@@ -4209,7 +4209,9 @@ function summonHunterShip(wx,wy){
   return null;
 }
 function hvTick(){
-  const hv=G.hv; if(!hv||!hv.ship) return;
+  const hv=G.hv; if(!hv) return;
+  if(G.step%30===0&&(hv.state==='asking'||hv.state==='moving')) hvWatchdog();
+  if(!hv.ship) return;
   const s=hv.ship;
   if(s.mode==='in'||s.mode==='out'){ const dx=s.tx-s.x, dy=s.ty-s.y, d=Math.hypot(dx,dy); if(d>2){ s.x+=dx/d*.45; s.y+=dy/d*.45; s.flip=dx<0; } else if(s.mode==='in'){ s.mode='dock'; hvLand(); } else { hv.ship=null; } }
 }
@@ -4517,6 +4519,25 @@ function nekoCarry(m,o){
     if(rnd()<.5) log(`${m.petName} si Neko menyeret ${o.name} yang pingsan pulang ke ${t.name} dengan gerobak kecilnya. Nyawanya selamat.`,'life',{x:m.x,y:m.y}); return true; }
   if(!m.path.length||G.step%20===0) m.path=[{x:d.x,y:d.y}];
   followPath(m); return true;
+}
+
+function hvWatchdog(){
+  const hv=G.hv; hv.since=hv.since||{}; if(hv.since.state!==hv.state){ hv.since={state:hv.state,at:G.step}; }
+  let vet=U(hv.vet);
+  if(!vet||vet.dead){
+    const crew=hv.crew.map(U).filter(u=>u&&!u.dead);
+    if(!crew.length){ hv.state='left'; log('Seluruh rombongan Hunter tewas sebelum sempat mendirikan desa.','war'); return; }
+    const nv=crew.filter(u=>isAdult(u)).sort((a,b)=>(BERKAT[b.b].n==='Hunter')-(BERKAT[a.b].n==='Hunter')||b.lvl-a.lvl)[0]||crew[0];
+    hv.vet=nv.id; nv.flags.epithet='the Veteran Hunter'; vet=nv;
+    log(`Pemimpin rombongan Hunter gugur. ${nv.name} mengambil alih dan kini dipanggil ${nv.name} the Veteran Hunter.`,'war',{x:nv.x,y:nv.y});
+  }
+  for(const id of hv.crew){ const u=U(id); if(u&&!u.dead&&!u.flags.hvWait&&hv.state!=='founded') u.flags.hvWait=true; }
+  if(hv.state==='moving'&&G.step-hv.since.at>DAY*3){
+    const crew=hv.crew.map(U).filter(u=>u&&!u.dead); const x=(hv.site.x+1)*TS, y=(hv.site.y+2)*TS;
+    if(dist(vet.x,vet.y,x,y)>34){ vet.x=x; vet.y=y; vet.path=[]; }
+    foundHunterVillage();
+  }
+  if(hv.state==='asking'&&G.step-hv.since.at>DAY*4){ hvDecide(); hv.since={state:hv.state,at:G.step}; }
 }
 
 /* ================= SPRITE PIKSEL ================= */
