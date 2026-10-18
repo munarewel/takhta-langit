@@ -142,6 +142,7 @@ select{background:var(--vault-2);border:1px solid var(--line);border-radius:7px;
       <button data-s="30" aria-pressed="false">30×</button>
       <button data-s="80" aria-pressed="false">80×</button>
       <button id="btnMenu" class="mnu" aria-expanded="false">Menu</button>
+      <button id="btnSkip" class="mi">Lompat Waktu</button>
       <button id="btnSave" class="mi">Simpan</button>
       <button id="btnLoad" class="mi">Muat</button>
       <button id="btnNew" class="mi">Dunia Baru</button>
@@ -470,6 +471,7 @@ function person(id){ return U(id)||G.grave[id]||null; }
 
 function log(text,kind='',pos=null){
   G.chron.unshift({y:yearInt(),d:dayOfYear(),text,kind,pos});
+  if(G.skipLog&&(kind==='hero'||kind==='god'&&/Legendary|Mythic/.test(text)||/runtuh|didirikan|Eksodus|Kudeta|naik takhta|Raja Iblis bersemayam|Nubuat|Pahlawan|Legenda tumbang|terbangun di|dunia lain|dicuri|Koki Legendaris|Wabah|menumbangkan|kembali dari laut|Kraken|Megalodon/.test(text))){ G.skipLog.push({y:yearInt(),text,kind}); if(G.skipLog.length>600) G.skipLog.shift(); }
   if(G.chron.length>400) G.chron.length=400;
   G.dirty.chron=true;
 }
@@ -2174,9 +2176,9 @@ function yearly(){
         log(`${fullName(kg)} mengambil ${c.name} sebagai selir ke-${k.consorts.length}. Bisik-bisik menyebar di pasar.`,'love',{x:kg.x,y:kg.y}); }
     }
   }
-  for(const d of G.dungeons){ if(!d.demon&&d.maxFloor>=8&&yearInt()>=18&&rnd()<.035){ d.demon=true; log(`Kabar buruk: Raja Iblis bersemayam di dasar ${d.name}.`,'war',{x:d.x*TS,y:d.y*TS}); } }
+  for(const d of G.dungeons){ if(!d.demon&&d.maxFloor>=8&&yearInt()>=18&&G.dungeons.filter(x=>x.demon).length<5&&rnd()<.025){ d.demon=true; log(`Kabar buruk: Raja Iblis bersemayam di dasar ${d.name}.`,'war',{x:d.x*TS,y:d.y*TS}); } }
   G.demonCount=G.dungeons.filter(d=>d.demon).length;
-  for(const d of G.dungeons) if(d.demon&&rnd()<.28) spawnWarband(d);
+  { const dm=G.dungeons.filter(d=>d.demon); for(const d of dm){ const nt=G.towns.slice().sort((a,b)=>dist(a.cx,a.cy,d.x,d.y)-dist(b.cx,b.cy,d.x,d.y))[0]; if(nt&&(nt.pop||0)<30) continue; if(rnd()<.28/Math.max(1,dm.length/2)) spawnWarband(d); } }
   if(G.demonCount>=5&&!G.prophecy&&!G.units.some(u=>!u.dead&&u.b===BIDX('Pahlawan'))){ G.prophecy=true; log('Nubuat terpenuhi: lima Raja Iblis bersemayam di bawah tanah. Anak berikutnya yang lahir di dunia akan membawa berkat Pahlawan.','hero'); }
   if(G.dungeons.length<8&&rnd()<.18) placeDungeon(false);
   if(G.nests.length<16&&rnd()<.3) placeNest();
@@ -3559,6 +3561,7 @@ function voiceCommand(u,cmd,arg){
       hist(u,`beralih pekerjaan: ${JOB_OPTS.find(j=>j[0]===arg)[1].toLowerCase()}`); return R(true,`${u.name} akan ${JOB_OPTS.find(j=>j[0]===arg)[1].toLowerCase()}. Tanpa berkat yang cocok, hasilnya mungkin tak secepat ahlinya.`); }
     case 'affair':{ const v=U(arg); if(!v||v.sex===u.sex||related(u,v)) return {ok:false,line:'…',note:'Tidak mungkin.'}; if(!accept('bad')) return R(false); if(rnd()>.4+(v.rel[u.id]?.r||0)/120+(has(v,'Penggoda')?.2:0)-(has(v,'Setia Abadi')?.6:0)) return {ok:false,line:sayT(u,'yes'),note:`${u.name} mencoba, tapi ${v.name} menolaknya.`}; u.affair=v.id; v.affair=u.id; u.affairSince=v.affairSince=G.step; hist(u,`diam-diam menjalin hubungan dengan ${v.name}`); hist(v,`diam-diam menjalin hubungan dengan ${u.name}`); return R(true,`${u.name} dan ${v.name} kini menjalin hubungan rahasia.`); }
     case 'solo':{ if(!isAdult(u)) return {ok:false,line:'…',note:'Masih anak-anak.'}; if(!accept('neutral')) return R(false); const on=!wantsSolo(u); u.flags.solo=on; u.flags.teamUp=!on; if(on){ u.career='petualang'; const p=partyOf(u); if(p&&!p.solo) partyLeave(p,u,'memilih bertualang sendiri'); } else { const p=partyOf(u); if(p&&p.solo) endParty(p); } return R(true,on?`${u.name} akan bertualang seorang diri.`:`${u.name} bersedia bergabung dengan party lagi.`); }
+    case 'secede':{ const k=K(u.kingdom); if(!k||!isAdult(u)||u.royal||k.king===u.id) return {ok:false,line:'…',note:'Tidak mungkin.'}; if(rnd()>obeyChance(u,'good')*(misery(k)>=1?1:.4)+(has(u,'Karismatik')||has(u,'Ambisius')?.15:0)) return R(false); const err=leadExodus(k,u,true); if(err) return {ok:false,line:sayT(u,'yes'),note:`${u.name} mencoba, tapi gagal: ${err}`}; return {ok:true,line:sayT(u,'yes'),note:`${u.name} memimpin rakyat mendirikan kerajaan baru.`}; }
     case 'good':{ u.happy=Math.min(100,u.happy+20); u.corrupt=Math.max(0,(u.corrupt||0)-30); if(has(u,'Pesimis')&&rnd()<.6) u.traits=u.traits.filter(x=>x!=='Pesimis'); if(u.vendetta&&!u.vendetta.done&&rnd()<.35){ u.vendetta=null; u.motif=rollMotif(u); hist(u,'melepaskan dendamnya setelah sebuah mimpi'); return {ok:true,line:sayT(u,'yes'),note:`${u.name} menangis dalam tidurnya, lalu melepaskan dendamnya.`}; } return {ok:true,line:sayT(u,'yes'),note:`${u.name} bangun dengan hati yang lebih ringan.`}; }
     case 'bad':{ u.corrupt=Math.min(100,(u.corrupt||0)+28); u.happy-=8; if(rnd()<.4&&!has(u,'Serakah')&&!conflicts('Serakah',u.traits)) u.traits.push('Serakah'); return {ok:true,line:'…',note:`Benih kegelapan tertanam di hati ${u.name} (korupsi ${Math.round(u.corrupt)}).`}; }
     case 'murder':{ const v=U(arg); if(!v||!isAdult(u)) return {ok:false,line:'…',note:'Tidak mungkin.'}; if(!accept('bad')||(u.corrupt||0)<35&&rnd()<.6) return {ok:false,line:sayT(u,'no'),note:`${u.name} terbangun gemetar dan menolak bisikan itu.`}; u.flags.murder={target:v.id,until:G.step+DAY*6}; u.corrupt=Math.min(100,(u.corrupt||0)+20); hist(u,`menyimpan niat gelap terhadap ${v.name}`); return {ok:true,line:'……',note:`Niat membunuh ${v.name} tertanam di hati ${u.name}. Ia akan bertindak di malam hari.`}; }
@@ -3950,7 +3953,102 @@ function daily6(){
   for(const t of G.towns){ const people=G.units.filter(u=>!u.dead&&u.town===t.id&&u.race!=='monster'); pantryDaily(t,people); armorDaily(t); shopsDaily(t,people); guildRecruit(t,people); soloParties(t); }
   for(const u of G.units) if(!u.dead&&u.race!=='monster'&&tamerInfo(u)&&tamerInfo(u).share) recalcStats(u);
 }
-function yearly6(){ legendYearly(); seaYearly(); recipesSpread(); }
+function yearly6(){ legendYearly(); seaYearly(); recipesSpread(); secessionYearly(); }
+
+/* =====================================================================
+   SIMULASI 7: rakyat memisahkan diri & mendirikan kerajaan baru,
+   catatan lompat waktu
+   ===================================================================== */
+function freeKingdomSite(R,from){
+  let best=null,bs=-1e9;
+  for(let i=0;i<1400;i++){
+    const x=ri(R+8,MW-R-10), y=ri(R+8,MH-R-10);
+    if(!buildable(tileAt(x,y))) continue;
+    if(G.towns.some(t=>dist(t.cx,t.cy,x,y)<t.R+R+(i<500?24:i<1000?12:6))) continue;
+    if(G.dens&&G.dens.some(d=>dist(d.x,d.y,x,y)<R+4)) continue;
+    if(G.nests.some(n=>n.legend&&dist(n.x,n.y,x,y)<R+10)) continue;
+    let s=0;
+    for(let dy=-R;dy<=R;dy+=2)for(let dx=-R;dx<=R;dx+=2){ if(dx*dx+dy*dy>R*R) continue; const t=tileAt(x+dx,y+dy); if(t===T.GRASS||t===T.SAND) s+=2; else if(t===T.FOREST||t===T.DESERT) s+=1.3; else if(t===T.HILLS) s+=.9; else s-=4; }
+    if(from) s-=dist(from.cx,from.cy,x,y)*.3;
+    if(s>bs){ bs=s; best={x,y}; }
+  }
+  return bs>80?best:null;
+}
+function misery(k){
+  const kg=U(k.king); let m=0;
+  if((k.welfare||60)<40) m+=1; if((k.welfare||60)<28) m+=1;
+  if(k.zoning) m+=1; if(k.tax>=.3) m+=1;
+  if(kg){ if(has(kg,'Kejam')) m+=1; if(has(kg,'Serakah')) m+=.5; if((kg.corrupt||0)>=55) m+=1; if(kg.flags.tyrant||kg.flags.stolenWives) m+=1; }
+  if(!kg) m+=.5;
+  return m;
+}
+function secessionYearly(){
+  const alive=G.kingdoms.filter(k=>k.alive);
+  if(alive.length>=8) return;
+  for(const k of alive){
+    if(yearInt()-k.founded<10) continue;
+    const m=misery(k);
+    k.unrest=clamp((k.unrest||0)+(m>=2?m-1:-1),0,10);
+    if(k.unrest<3||(k.lastSecession!=null&&yearInt()-k.lastSecession<15)) continue;
+    if(rnd()>.12+k.unrest*.03) continue;
+    const people=G.units.filter(u=>!u.dead&&u.kingdom===k.id&&u.race!=='monster'&&!u.flags.infil&&!u.captive&&!u.dungeonLord);
+    if(people.length<22) continue;
+    const L=pickRebelLeader(k,people); if(!L) continue;
+    leadExodus(k,L,false);
+  }
+}
+function leaderScore(u){ return (has(u,'Karismatik')?14:0)+(has(u,'Pemimpin Lahir')?14:0)+(has(u,'Ambisius')?8:0)+(has(u,'Adil')?6:0)+(has(u,'Bijak')?6:0)+(has(u,'Pemberani')?4:0)+u.lvl*.6+((u.iq||100)-100)*.12+BERKAT[u.b].s*2+(u.kelas==='bawah'?3:0)-(u.happy||60)*.05; }
+function pickRebelLeader(k,people){
+  return people.filter(u=>isAdult(u)&&stageOf(u)==='dewasa'&&!u.royal&&!u.flags.istana&&k.king!==u.id&&!u.possessed&&(has(u,'Karismatik')||has(u,'Pemimpin Lahir')||has(u,'Ambisius')||u.lvl>=15||(u.iq||100)>=125)).sort((a,b)=>leaderScore(b)-leaderScore(a))[0]||null;
+}
+function leadExodus(k,L,byVoice){
+  const from=TN(L.town)||TN(k.capital);
+  const kg=U(k.king);
+  const people=G.units.filter(u=>!u.dead&&u.kingdom===k.id&&u.race!=='monster'&&!u.flags.infil&&!u.captive&&!u.dungeonLord&&!u.royal&&!u.flags.istana&&u!==L&&!u.possessed);
+  // dihentikan raja?
+  const guards=people.filter(u=>u.career==='penjaga').length;
+  if(kg&&has(kg,'Kejam')&&guards>=4&&rnd()<.3){
+    log(`${fullName(L)} mencoba memimpin rakyat keluar dari ${k.name}, tapi ${fullName(kg)} mengirim pasukan. Ia ditangkap dan dihukum mati di depan rakyat yang hendak mengikutinya.`,'war',{x:L.x,y:L.y});
+    die(L,null,'dihukum mati karena memimpin pemisahan diri'); k.unrest+=2; return 'Raja menumpas gerakan itu.';
+  }
+  const site=freeKingdomSite(20,from); if(!site) return 'Tidak ada tanah kosong yang layak untuk kerajaan baru.';
+  // pengikut: keluarga, sahabat, rakyat yang tidak bahagia
+  const fam=u=>[u,U(u.spouse),...u.children.map(U)].filter(v=>v&&!v.dead&&v.kingdom===k.id&&!v.royal&&!v.flags.istana&&!v.captive);
+  const set=new Set(fam(L));
+  const pull=v=>(v.kelas==='bawah'?25:v.kelas==='menengah'?10:-15)+(60-(v.happy||60))*.6+((v.rel[L.id]?.f)||0)*.5+(has(v,'Setia')||has(v,'Rumahan')?-20:0)+(has(v,'Jiwa Petualang')?10:0)+(v.career==='penjaga'?-15:0)+(v.career==='guild'||v.career==='guru'?-30:0)+rnd()*25;
+  const want=Math.round(clamp(people.length*(.18+(k.unrest||3)*.03),8,45));
+  const heads=people.filter(v=>isAdult(v)&&!set.has(v)).sort((a,b)=>pull(b)-pull(a));
+  for(const h of heads){ if(set.size>=want) break; if(pull(h)<12) break; for(const m of fam(h)) set.add(m); }
+  if(set.size<8) return 'Terlalu sedikit yang mau mengikutinya.';
+  const race=L.race, R=RACE[race];
+  const nk={id:newId(),race,name:`${R.kpre} ${L.marga||genName(race,'m')}`,color:KCOLS[G.colorIdx++%KCOLS.length],capital:null,king:null,queen:null,consorts:[],treasury:150,tax:.12,welfare:62,founded:yearInt(),alive:true,heir:null,origin:k.id,founder:L.id};
+  if(G.kingdoms.some(o=>o.name===nk.name)) nk.name=`${R.kpre} ${genName(race,'m')}`;
+  G.kingdoms.push(nk);
+  const t=newTown(nk,site.x,site.y,true,20); nk.capital=t.id; t.stock.food=160+set.size*4; t.stock.wood=120; t.stock.stone=80;
+  const spot=()=>{ for(let i=0;i<60;i++){ const a=rnd()*Math.PI*2, r=3+rnd()*9; const x=Math.round(site.x+Math.cos(a)*r), y=Math.round(site.y+3+Math.sin(a)*r*.7); if(buildable(tileAt(x,y))&&!G.road[y*MW+x]&&(G.occ[y*MW+x]===0||G.occ[y*MW+x]===4)) return {x,y}; } return {x:site.x+ri(-8,8),y:site.y+ri(3,8)}; };
+  const tents=new Map();
+  for(const u of set){
+    const head=U(u.father)&&set.has(U(u.father))&&!isAdult(u)?U(u.father):U(u.mother)&&set.has(U(u.mother))&&!isAdult(u)?U(u.mother):u.spouse&&set.has(U(u.spouse))&&u.sex==='f'?U(u.spouse):u;
+    let tent=tents.get(head.id); if(!tent){ const s=spot(); tent=addBuilding(t,'tenda',null,{x:s.x,y:s.y}); tents.set(head.id,tent); }
+    if(u.party){ const p=partyOf(u); if(p) partyLeave(p,u,'ikut eksodus'); }
+    const oh=B(u.home); if(oh&&oh.owner===u.id) oh.owner=null;
+    u.town=t.id; u.kingdom=nk.id; u.home=tent.id; u.task=null; u.inside=false; u.pendingAct=null; u.kelas=u.kelas||'bawah';
+    if(u.career==='guild'||u.career==='guru'||u.career==='istana') u.career=null;
+    goTo(u,(site.x+1)*TS+ri(-30,30),(site.y+3)*TS+ri(-20,20));
+    hist(u,u===L?`memimpin eksodus dari ${k.name} dan mendirikan ${nk.name}`:`ikut eksodus ${L.name} ke ${t.name}`);
+  }
+  L.royal=nk.id; L.title=L.sex==='m'?'Raja':'Ratu'; L.career='istana'; nk.king=L.id; L.happy=Math.min(100,(L.happy||60)+30);
+  const sp=U(L.spouse); if(sp&&set.has(sp)){ sp.royal=nk.id; sp.title=L.sex==='m'?'Permaisuri':'Pangeran Konsor'; sp.career='istana'; nk.queen=sp.id; }
+  for(const c of L.children.map(U)) if(c&&set.has(c)){ c.royal=nk.id; c.title=c.sex==='m'?'Pangeran':'Putri'; }
+  for(const u of set) if(isAdult(u)&&u!==L&&u!==sp&&!u.career) assignCareer(u);
+  updateTax(nk); addBuilding(t,'istana');
+  k.lastSecession=yearInt(); nk.lastSecession=yearInt(); k.unrest=0;
+  for(const v of people) if(!set.has(v)) v.happy=Math.min(100,(v.happy||60)+3);
+  if(kg){ const r=relOf(kg,L.id); r.f-=60; }
+  G.secessions=(G.secessions||0)+1;
+  log(`Eksodus! Muak dengan ${kg?`pemerintahan ${fullName(kg)}`:'kerajaan tanpa raja'}, ${fullName(L)} memimpin ${set.size} rakyat ${k.name} meninggalkan rumah mereka. Di tanah kosong yang jauh, mereka mendirikan ${nk.name} dan mengangkat ${L.name} sebagai ${L.title}.${byVoice?' Konon semuanya berawal dari sebuah mimpi.':''}`,'hero',{x:(site.x+1)*TS,y:(site.y+1)*TS});
+  return null;
+}
 
 /* ================= SPRITE PIKSEL ================= */
 
@@ -5464,6 +5562,7 @@ function stats(){
 let statT=0, autoT=0;
 function frame(t){
   const dt=Math.min(100,t-lastT||16); lastT=t;
+  if(UI.skip){ skipTick(); requestAnimationFrame(frame); return; }
   const sp=timeHold()?0:UI.speed;
   if(sp>0){
     acc+=dt*sp*4/1000;
@@ -5510,6 +5609,7 @@ function initUI(){
     else if(b.id==='btnSave'){ if(saveGame()) G.savedOnce=true; }
     else if(b.id==='btnLoad'){ loadGame(); }
     else if(b.id==='btnNew'){ openSetup(); }
+    else if(b.id==='btnSkip'){ openSkip(); }
   });
   $('zin').onclick=()=>{ const r=R_.cv.getBoundingClientRect(); zoomAt(r.width/2,r.height/2,1.3); };
   $('zout').onclick=()=>{ const r=R_.cv.getBoundingClientRect(); zoomAt(r.width/2,r.height/2,1/1.3); };
@@ -5640,7 +5740,7 @@ function renderDream(){
    ${tamerInfo(u)&&ad?`<button class="btn" data-dm="tame" ${can()}>Jinakkan beast</button>`:''}
    ${ad&&!u.spouse?`<button class="btn" data-dm="marry" ${can()}>Saran menikah</button>`:''}
    ${ad?`<button class="btn" data-dm="job" ${can()}>Saran pekerjaan</button><button class="btn" data-dx="solo" ${can()}>${wantsSolo(u)?'Ajak bergabung party':'Bertualang sendirian'}</button>`:''}
-   <button class="btn" data-dx="good" ${can()}>Nasihat baik</button></div>
+   <button class="btn" data-dx="good" ${can()}>Nasihat baik</button>${ad&&k&&!u.royal&&k.king!==u.id?`<button class="btn" data-dx="secede" ${can()}>Pimpin rakyat dirikan kerajaan</button>`:''}</div>
   <h4>Bisikan gelap</h4><div class="row">
    ${ad?`<button class="btn dark" data-dm="affair" ${can()}>Suruh selingkuh</button>`:''}
    <button class="btn dark" data-dx="bad" ${can()}>Pengaruh buruk</button>
@@ -5662,7 +5762,7 @@ function dTopic(u,t){
   else if(t==='sistem'){ dSay('me','Bagaimana dunia ini menurutmu?'); dSay('npc',`Level-ku sekarang ${u.lvl}. Orang sini nggak sadar ada sistem level, mereka menyebutnya "berkah dewa". ${(u.iq||100)>=140?'Kalau dihitung, XP dari monster rank tinggi jauh lebih efisien. Dungeon adalah tempat grinding terbaik, asal nggak mati.':'Aneh, tapi masuk akal kayak game.'}`); if(u.flags.summonedBy){ const k=K(u.flags.summonedBy); dSay('npc',`${k?k.name:'Kerajaan itu'} mengorbankan sepuluh orang demi memanggilku. Aku nggak tahu harus berterima kasih atau marah.`); } }
   renderDream();
 }
-const ME_LINE={party:s=>`Bentuklah party bersama ${s}.`,kick:s=>`${s} hanya membebani party-mu. Keluarkan dia.`,raid:s=>`Bawa party-mu ke ${s}.`,tame:s=>`Carilah ${s} dan jinakkan.`,marry:s=>`${s} adalah jodohmu. Dekati dia.`,affair:s=>`Kau menginginkan ${s}, bukan? Ambil saja.`,murder:s=>`${s} adalah penghalangmu. Singkirkan dia.`,job:s=>`Hidupmu akan lebih baik bila kau ${s.toLowerCase()}.`,solo:s=>s==='join'?'Bahkan pahlawan terhebat butuh kawan. Bergabunglah dengan party.':'Kau tak butuh siapa pun. Bertualanglah sendirian.',good:()=>'Kau lebih berharga dari yang kau kira. Berbuat baiklah, dunia akan membalasnya.',bad:()=>'Semua orang memanfaatkanmu. Ambil apa yang bisa kau ambil.',betray:()=>'Raja tidak peduli padamu. Khianati dia.',rebel:()=>'Takhta itu bisa jadi milikmu. Himpun mereka yang muak.'};
+const ME_LINE={party:s=>`Bentuklah party bersama ${s}.`,kick:s=>`${s} hanya membebani party-mu. Keluarkan dia.`,raid:s=>`Bawa party-mu ke ${s}.`,tame:s=>`Carilah ${s} dan jinakkan.`,marry:s=>`${s} adalah jodohmu. Dekati dia.`,affair:s=>`Kau menginginkan ${s}, bukan? Ambil saja.`,murder:s=>`${s} adalah penghalangmu. Singkirkan dia.`,job:s=>`Hidupmu akan lebih baik bila kau ${s.toLowerCase()}.`,secede:()=>'Rakyat menderita di bawah raja ini. Bawa mereka pergi dan dirikan kerajaanmu sendiri.',solo:s=>s==='join'?'Bahkan pahlawan terhebat butuh kawan. Bergabunglah dengan party.':'Kau tak butuh siapa pun. Bertualanglah sendirian.',good:()=>'Kau lebih berharga dari yang kau kira. Berbuat baiklah, dunia akan membalasnya.',bad:()=>'Semua orang memanfaatkanmu. Ambil apa yang bisa kau ambil.',betray:()=>'Raja tidak peduli padamu. Khianati dia.',rebel:()=>'Takhta itu bisa jadi milikmu. Himpun mereka yang muak.'};
 function dCommand(u,cmd,arg,label){
   if(UI.dream.cmds<=0) return;
   dSay('me',ME_LINE[cmd](label||''));
@@ -5829,6 +5929,69 @@ function arsipHtml(){
 }
 function initUI3(){
   $('pbody').addEventListener('click',e=>{ const a=e.target.closest('[data-ar]'); if(a){ UI.arsip=a.dataset.ar; UI.pdirty=true; renderPanel(true); } });
+}
+
+/* =====================================================================
+   UI 4: lompat waktu 10 / 50 / 100 tahun dengan ringkasan
+   ===================================================================== */
+UI.skip=null;
+function worldSnap(){
+  const hum=G.units.filter(u=>!u.dead&&u.race!=='monster'&&!u.flags.infil);
+  const ks=G.kingdoms.filter(k=>k.alive);
+  return {y:yearInt(),pop:hum.length,kings:ks.map(k=>({id:k.id,name:k.name,king:U(k.king)?fullName(U(k.king)):'-'})),maxLv:hum.reduce((m,u)=>Math.max(m,u.lvl),0),best:hum.slice().sort((a,b)=>b.lvl-a.lvl)[0],demon:G.demonCount||0,recipes:G.towns.reduce((s,t)=>s+(t.recipes||[]).length,0)};
+}
+function openSkip(){
+  if(UI.skip) return;
+  const box=$('setup'); box.hidden=false;
+  box.innerHTML=`<div class="card"><h3>Lompat Waktu</h3><p class="sub" style="margin:0">Dunia berjalan sendiri tanpa digambar, jadi jauh lebih cepat. Kejadian penting dicatat lalu diringkas di akhir. Simpan dulu kalau ingin bisa kembali ke masa ini.</p>
+  <div class="row">${[10,25,50,100].map(n=>`<button class="btn" data-skp="${n}">${n} tahun</button>`).join('')}</div>
+  <div class="row"><button class="btn warn" data-skx="1">Batal</button></div></div>`;
+  box.onclick=e=>{ const b=e.target.closest('[data-skp]'); if(b){ startSkip(+b.dataset.skp); return; } if(e.target.closest('[data-skx]')) box.hidden=true; };
+}
+function startSkip(years){
+  if(G.possess) unpossess(); if(UI.dream) closeDream();
+  UI.skip={years,from:G.step,to:G.step+years*YEAR,snap:worldSnap(),t0:performance.now(),cancel:false};
+  G.skipLog=[];
+  renderSkip();
+}
+function renderSkip(){
+  const s=UI.skip; if(!s) return; const box=$('setup'); box.hidden=false;
+  const done=(G.step-s.from)/(s.to-s.from);
+  const pop=G.units.filter(u=>!u.dead&&u.race!=='monster').length;
+  box.innerHTML=`<div class="card"><h3>Waktu berlalu… tahun ${yearInt()}</h3><div class="bar" style="height:10px"><i style="width:${Math.round(done*100)}%;background:var(--gold)"></i></div>
+  <p class="sub" style="margin:0">${Math.round(done*100)}% · ${pop} jiwa · ${G.kingdoms.filter(k=>k.alive).length} kerajaan · ${G.skipLog.length} kejadian penting tercatat</p>
+  <p class="sub" style="margin:0;color:var(--parch)">${esc((G.skipLog[G.skipLog.length-1]||{}).text||'Dunia berputar tanpa pengawasan…').slice(0,160)}</p>
+  <div class="row"><button class="btn warn" data-sks="1">Berhenti di sini</button></div></div>`;
+  box.onclick=e=>{ if(e.target.closest('[data-sks]')&&UI.skip) UI.skip.cancel=true; };
+}
+let skipRT=0;
+function skipTick(){
+  const s=UI.skip; if(!s) return;
+  const t0=performance.now();
+  while(performance.now()-t0<45&&G.step<s.to&&!s.cancel) step();
+  FX_QUEUE.length=0; R_.fx.length=0;
+  if(G.step>=s.to||s.cancel){ finishSkip(); return; }
+  if(performance.now()-skipRT>250){ skipRT=performance.now(); renderSkip(); }
+}
+function finishSkip(){
+  const s=UI.skip; UI.skip=null;
+  const a=s.snap, b=worldSnap(); const log_=G.skipLog||[]; G.skipLog=null;
+  const yrs=b.y-a.y;
+  const oldK=a.kings.map(k=>k.id), newK=b.kings.filter(k=>!oldK.includes(k.id)), fell=a.kings.filter(k=>!b.kings.some(x=>x.id===k.id));
+  const minor=/menyelesaikan quest|memasuki|keluar dari .*lantai|\(peringkat [FEDC]\)|Ketua Guild|membawa berkat ★★★ |Pencari Bakat .* menemukan|Sarang .* dibasmi|Kepala .* tumbang|dihancurkan sampai makhluk terakhir|lulus dari/;
+  const pick40=log_.filter(e=>(e.kind==='hero'||/runtuh|didirikan|Eksodus|Kudeta|Legenda|Nubuat|Pahlawan|Raja Iblis bersemayam|dunia lain|dicuri/.test(e.text))&&!minor.test(e.text));
+  const show=(pick40.length>40?pick40.filter((e,i)=>i%Math.ceil(pick40.length/40)===0):pick40);
+  const box=$('setup'); box.hidden=false;
+  box.innerHTML=`<div class="card" style="max-width:560px;max-height:100%;overflow:auto"><h3>${yrs} tahun berlalu</h3>
+  <dl class="kv"><dt>Tahun</dt><dd>${a.y} → ${b.y}</dd><dt>Penduduk</dt><dd>${a.pop} → ${b.pop}</dd><dt>Kerajaan</dt><dd>${a.kings.length} → ${b.kings.length}</dd>
+  ${newK.length?`<dt>Berdiri</dt><dd>${newK.map(k=>esc(k.name)).join(', ')}</dd>`:''}${fell.length?`<dt>Runtuh</dt><dd style="color:#f0a59d">${fell.map(k=>esc(k.name)).join(', ')}</dd>`:''}
+  <dt>Penguasa kini</dt><dd>${b.kings.map(k=>`${esc(k.name)}: ${esc(k.king)}`).join('<br>')}</dd>
+  <dt>Terkuat</dt><dd>${b.best?`${esc(fullName(b.best))} · Lv ${b.best.lvl}`:'-'}</dd><dt>Raja Iblis</dt><dd>${a.demon} → ${b.demon}</dd><dt>Resep</dt><dd>${a.recipes} → ${b.recipes}</dd></dl>
+  <h4>Kejadian penting</h4>${show.length?`<ul class="log">${show.map(e=>`<li>Th ${e.y}: ${esc(e.text)}</li>`).join('')}</ul>`:'<p class="sub" style="margin:0">Masa yang tenang.</p>'}
+  <div class="row"><button class="btn" data-skd="1">Kembali ke dunia</button></div></div>`;
+  box.onclick=e=>{ if(e.target.closest('[data-skd]')){ box.hidden=true; } };
+  R_.lastTerrain=0; G.dirty.terrain=true; UI.pdirty=true; renderPanel(true);
+  if(G.savedOnce) saveGame(true);
 }
 initUI();
 initUI2();
