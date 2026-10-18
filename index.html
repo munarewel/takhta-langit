@@ -59,6 +59,12 @@ header{display:flex;align-items:center;gap:6px 14px;flex-wrap:wrap;padding-block
 .dream h4{margin:4px 0 0;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);font-weight:500}
 .dream .btn{padding:3px 8px;font-size:12.5px}
 .dream .btn.dark{border-color:#7a2a3a;color:#f0a0b0}
+.dview{position:absolute;inset:0;background:#0b0910;z-index:5;overflow:hidden}
+.dview canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;cursor:default}
+.dvhud{position:absolute;left:8px;top:8px;right:8px;display:flex;flex-direction:column;gap:4px;pointer-events:none;font-size:13px}
+.dvhud .box{background:rgba(14,12,22,.82);border:1px solid #4a3a6a;border-radius:8px;padding:6px 9px;max-width:420px}
+.dvhud .log{color:var(--parch);font-size:12.5px;margin:0;padding-left:16px}
+.dvx{position:absolute;right:8px;bottom:8px}
 .tstop{position:absolute;left:50%;transform:translateX(-50%);bottom:44px;background:rgba(22,20,40,.9);border:1px solid #5a4a8a;border-radius:999px;padding:3px 12px;font-size:12.5px;color:var(--hero);z-index:3;display:flex;gap:8px;align-items:center}
 .tstop button{background:none;border:0;color:var(--gold);text-decoration:underline;font-size:12.5px;padding:0}
 .chipbtn{border:1px solid var(--line);background:var(--vault-2);border-radius:999px;padding:2px 9px;font-size:13px}
@@ -156,6 +162,7 @@ select{background:var(--vault-2);border:1px solid var(--line);border-radius:7px;
     <div class="setup" id="setup" hidden></div>
     <div class="dream" id="dream" hidden></div>
     <div class="tstop" id="tstop" hidden></div>
+    <div class="dview" id="dview" hidden><canvas id="dvc"></canvas><div class="dvhud" id="dvhud"></div><button class="btn warn dvx" id="dvx">Kembali ke permukaan</button></div>
     <div class="zoom"><button id="zin" aria-label="Perbesar">+</button><button id="zout" aria-label="Perkecil">−</button></div>
     <div class="toast" id="toast" style="opacity:0"></div>
   </div>
@@ -263,7 +270,7 @@ const BIDX = n => BERKAT.findIndex(b=>b.n===n);
 const STAR_ODDS = [0,.62,.26,.09,.027,.003];
 const COMBAT_ROLES = new Set(['prajurit','pemanah','penyihir','penyembuh','pencuri']);
 const RANGED_ROLES = new Set(['pemanah','penyihir','penyembuh']);
-const ROLE_LABEL = {tani:'Bertani',ternak:'Beternak',ikan:'Memancing',kayu:'Menebang',batu:'Menambang',tempa:'Menempa',bangun:'Membangun',kriya:'Kerajinan',masak:'Memasak',buru:'Berburu',tabib:'Mengobati',dagang:'Berdagang',kurir:'Kurir',tulis:'Juru tulis',hibur:'Menghibur',prajurit:'Pejuang',pemanah:'Pemanah',penyihir:'Penyihir',penyembuh:'Penyembuh',pendeta:'Pendeta',pencuri:'Bayangan'};
+const ROLE_LABEL = {enchant:'Meng-enchant',hunter:'Hunter',tamerhv:'Tamer',tani:'Bertani',ternak:'Beternak',ikan:'Memancing',kayu:'Menebang',batu:'Menambang',tempa:'Menempa',bangun:'Membangun',kriya:'Kerajinan',masak:'Memasak',buru:'Berburu',tabib:'Mengobati',dagang:'Berdagang',kurir:'Kurir',tulis:'Juru tulis',hibur:'Menghibur',prajurit:'Pejuang',pemanah:'Pemanah',penyihir:'Penyihir',penyembuh:'Penyembuh',pendeta:'Pendeta',pencuri:'Bayangan'};
 
 /* ---------- Sifat ---------- */
 const SIFAT = {
@@ -631,7 +638,7 @@ function levelUp(u,silent){
   if(rk!==pr&&u.career==='petualang'&&RANK_ORDER.indexOf(rk)>=3) log(`Guild mengakui ${fullName(u)} sebagai petualang peringkat ${rk}.`,'hero',{x:u.x,y:u.y});
 }
 function rankOf(l){ return l>=40?'S':l>=30?'A':l>=22?'B':l>=15?'C':l>=10?'D':l>=5?'E':'F'; }
-function fullName(u){ if(!u) return '?'; const t=u.title?u.title+' ':''; return `${t}${u.name} ${u.marga||''}`.trim(); }
+function fullName(u){ if(!u) return '?'; const t=u.title?u.title+' ':''; return `${t}${u.name} ${u.flags&&u.flags.epithet||u.marga||''}`.trim(); }
 function shortName(u){ if(!u) return '?'; return (u.title?u.title+' ':'')+u.name; }
 function pronoun(u){ return u.sex==='m'?'ia':'ia'; }
 
@@ -794,7 +801,7 @@ function houseResidents(b){ return G.units.filter(u=>!u.dead&&u.home===b.id); }
    ===================================================================== */
 const PRICE={food:1,wood:1,stone:1.5,ore:3,goods:5};
 
-function newWorld(seed,races){
+function newWorld(seed,races,startPop){
   races = races&&races.length?races:['manusia','elf','dwarf'];
   seed = seed ?? Math.floor(Math.random()*1e6);
   srand(seed);
@@ -808,9 +815,10 @@ function newWorld(seed,races){
   for(const race of races){
     const s=findSite(race,sites,26); if(s){ sites.push(s); foundKingdom(race,s.x,s.y,true); }
   }
-  for(let i=0;i<15;i++) placeNest();
+  if(startPop&&startPop>G.units.length) setupPopulation(startPop);
+  for(let i=0;i<15+Math.floor((startPop||0)/150);i++) placeNest();
   for(let i=0;i<4;i++) placeDungeon(true);
-  placeVeins(34); placeDen('goblin'); placeDen('goblin'); placeDen('orc'); worldUpgrade();
+  placeVeins(34); placeDen('goblin'); placeDen('goblin'); placeDen('orc'); worldUpgrade(); worldUpgrade8();
   log(`Tahun 0. ${['','Satu','Dua','Tiga','Empat','Lima'][G.kingdoms.length]} rombongan pendiri tiba di tanah baru, berjauhan satu sama lain. Mereka belum tahu ada yang mengawasi dari langit.`,'god');
   return G;
 }
@@ -1018,7 +1026,7 @@ function succeed(k,old){
   if(!heir){ k.alive=false; log(`${k.name} kehilangan penguasa terakhirnya dan runtuh.`,'war'); return; }
   k.king=heir.id; heir.royal=k.id; heir.title=heir.sex==='m'?'Raja':'Ratu';
   if(cap){ const pal=G.blds.find(b=>b.town===cap.id&&b.type==='istana'); if(pal&&pal.done){ heir.home=pal.id; const sp=U(heir.spouse); if(sp){ sp.home=pal.id; sp.royal=k.id; sp.title=heir.sex==='m'?'Permaisuri':'Pangeran Konsor'; k.queen=sp.id; } } }
-  heir.career=null; hist(heir,`naik takhta ${k.name}`);
+  heir.career=null; if(k.hunter){ heir.title='Kepala Desa'; assignCareer(heir); } hist(heir,`naik takhta ${k.name}`);
   updateTax(k);
   log(`${old?shortName(old)+' telah tiada. ':''}${fullName(heir)} naik takhta ${k.name}. Pajak kerajaan kini ${Math.round(k.tax*100)}%.`,'life',{x:heir.x,y:heir.y});
   checkDream(heir);
@@ -1026,6 +1034,7 @@ function succeed(k,old){
 
 /* ---------- karier ---------- */
 function assignCareer(u){
+  if(BERKAT[u.b]&&BERKAT[u.b].hv&&isAdult(u)){ u.career=BERKAT[u.b].n==='Hunter'?'hunter':'kurir'; return; }
   if(u.royal&&['Raja','Ratu','Permaisuri','Pangeran Konsor','Selir'].includes(u.title)) { u.career='istana'; return; }
   const role=roleOf(u);
   if(tamerInfo(u)){ u.career='petualang'; return; }
@@ -1070,7 +1079,7 @@ function speedOf(u){
   if(u.race==='monster') return MON[u.mk].spd*1.4*(u.variant&&VARIANTS[u.variant].spd||1)*(hasFx(u,'slow')?.5:1)*(u.tamer?1.25:1);
   let s=2.4; const st=stageOf(u);
   if(st==='tua') s*=.65; else if(st==='anak') s*=.85; else if(st==='bayi') s*=.4;
-  if(has(u,'Lincah')) s*=1.2; if(u.mounted) s*=2.1; if(u.sick) s*=.6;
+  if(has(u,'Lincah')) s*=1.2; if(u.mounted) s*=2.1; if(u.mountMon) s*=1.9; if(u.sick) s*=.6;
   if(!isLand(tileOfPx(u.x,u.y))) s*=.45;
   if(hasFx(u,'slow')) s*=.5;
   return s;
@@ -1091,6 +1100,8 @@ function chooseTask(u){
   const st=stageOf(u), t=TN(u.town), home=B(u.home), f=dayFrac();
   u.inside=false;
   if(u.flags.infil) return infilTask(u);
+  if(u.flags.hvWait&&hvWaitTask(u)) return;
+  if(u.hq&&!isNight()){ u.task={k:'hq'}; return; }
   if(u.dungeonLord){ u.inside=true; u.task={k:'idle',t:200}; return; }
   if(u.flags.murder&&isNight()&&isAdult(u)&&murderTask(u)) return;
   if(t&&alarmOn(t)&&!canFight(u)&&home){ const d=bldDoor(home); goTo(u,d.x,d.y); u.task={k:'sleep'}; return; }
@@ -1280,6 +1291,8 @@ function workTask(u,t){
     }
     return buildTask(u,t,site);
   }
+  if(u.career==='hunter') return hunterTask(u,t);
+  if(u.career==='kurir') return courierTask(u,t);
   if(u.career==='penjaga') return guardTask(u,t);
   if(u.career==='petualang') return adventurerTask(u,t);
   let kind=null, res='food', amt=8, dur=45;
@@ -1407,6 +1420,9 @@ function runTask(u){
     case 'nurse': { const b=B(k.b); if(b) b.nurse=G.step; if(G.step%50===0){ const kd=K(u.kingdom); if(kd){ kd.treasury=Math.max(0,kd.treasury-.8); u.gold+=.8; } gainXp(u,.4); } if(--k.t<=0) u.task=null; break; }
     case 'herd': herdStep(u,k); break;
     case 'cook': cookStep(u,k); break;
+    case 'hq': hqStep(u); break;
+    case 'courier': courierStep(u,k); break;
+    case 'bath': bathStep(u,k); break;
     case 'enchant': enchantStep(u,k); break;
     case 'graze': { if(--k.t<=0){ const t=TN(k.town); if(t){ t.penCare=G.step; const p=t.pen; goTo(u,(p.x+p.w/2)*TS,(p.y+p.h)*TS+4); } u.task={k:'idle',t:30}; gainXp(u,1); } break; }
     case 'stall': if(--k.t<=0) u.task=null; break;
@@ -1486,6 +1502,7 @@ function finishWall(t){
   for(const u of G.units) if(!u.dead&&u.town===t.id&&u.career==='penjaga'){ u.task=null; u.path=[]; }
 }
 function queueNext(t){
+  if(t.hunter) return;
   const order=t.cap?['lumbung','kuil','klinik','guild','pasar','bengkel','akademi']:['lumbung','kuil','klinik','pasar'];
   for(const type of order){
     if(G.blds.some(b=>b.town===t.id&&b.type===type)) continue;
@@ -1825,6 +1842,7 @@ function fightStep(u,k){
 }
 function monsterKilled(m,killer){
   const def=MON[m.mk];
+  { const kh=killer.tamer?U(killer.tamer)||killer:killer; if(kh.hq) hvKill(kh,m); }
   { const kh=killer.tamer?U(killer.tamer)||killer:killer; const tt=TN(kh.town); if(tt&&MON_DROP[m.mk]&&rnd()<.5) addIngr(tt,MON_DROP[m.mk],1); if(def.legend) legendSlain(m,kh); }
   const party=killer.party?G.parties.find(p=>p.id===killer.party):null;
   if(party&&party.state!=='rest') party.kills++;
@@ -1852,6 +1870,7 @@ function spawnMonster(kind,x,y,nest){
 function raiding(u){ return u.flags.raid&&G.step<u.flags.raid; }
 function inTownZone(x,y){ for(const t of G.towns){ if(dist(x/TS,y/TS,t.cx+1,t.cy+1)<t.R+1.5) return true; } return false; }
 function stepMonster(u){
+  if(u.mk==='superKong') kongRage(u);
   if(u.flags.sea&&!u.tamer){ stepSea(u); return; }
   fxTick(u); if(u.dead) return;
   if(u.tamer){ stepPet(u); return; }
@@ -1886,6 +1905,7 @@ function daily(){
   const yr=nowY();
   demonChildDaily();
   daily6();
+  hvDaily();
   for(const u of G.units) if(u.flags&&u.flags.rebel) rebelDaily(u);
   for(const d of G.dungeons){ if(d.demon){ d.soul=(d.soul||0)+1.5+(d.maxFloor||5)*.1; if(rnd()<.35) lordAI(d); } }
   for(const p of G.parties.slice()){ if(p.state!=='rest'&&p.state!=='in'&&G.step-(p.lastOut||0)>DAY*5){ p.done=(p.out||[]).map(U).filter(Boolean); for(const m of p.done){ m.inside=false; m.task=null; } partyReturn(p); } }
@@ -2161,12 +2181,12 @@ function checkDream(u){
 function yearly(){
   const y=yearInt();
   villagesYearly(); classesYearly(); densYearly(); isekaiYearly(); yearly6();
-  for(const k of G.kingdoms) if(k.alive&&y>=3) scoutYearly(k);
+  for(const k of G.kingdoms) if(k.alive&&!k.hunter&&y>=3) scoutYearly(k);
   if(rnd()<.35) placeVeins(1);
-  for(const k of G.kingdoms) if(k.alive) tyrantYearly(k);
+  for(const k of G.kingdoms) if(k.alive&&!k.hunter) tyrantYearly(k);
   revengeYearly();
   for(const k of G.kingdoms){
-    if(!k.alive) continue;
+    if(!k.alive||k.hunter) continue;
     updateTax(k);
     const kg=U(k.king);
     if(kg&&kg.sex==='m'&&kg.spouse&&(has(kg,'Penggoda')||has(kg,'Serakah')&&has(kg,'Ambisius'))&&k.consorts.length<5&&rnd()<.25){
@@ -2298,6 +2318,7 @@ function step(){
   if(G.step%30===7) buryTick();
   if(G.step%3===0) firesTick();
   if(G.step%2===1) boatsMove();
+  if(G.hv) hvTick();
   const sd=G.step%DAY;
   if(sd===Math.floor(DAY*.06)) nightRomance();
   if(sd===Math.floor(DAY*.54)||sd===Math.floor(DAY*.76)){
@@ -2544,7 +2565,7 @@ function rescueTick(){
     if(nearest(v.x,v.y,48,m=>sideOf(m)==='M'&&!m.dead&&!m.inside)) continue;
     const cands=near(v.x,v.y,300,r=>r!==v&&r.race!=='monster'&&isAdult(r)&&!r.downed&&!r.possessed&&!r.inside&&!r.flags.infil&&!(r.task&&['fight','rescue','bury'].includes(r.task.k))&&!hasFx(r,'fear')&&!hasFx(r,'charm'));
     if(!cands.length) continue;
-    const sc=r=>(['tabib','penyembuh'].includes(roleOf(r))?120:0)+(r.party&&r.party===v.party?90:0)+(r.spouse===v.id||r.children.includes(v.id)||v.children.includes(r.id)?70:0)+(r.career==='penjaga'?30:0)+((r.rel[v.id]?.f)||0)*.3-dist(r.x,r.y,v.x,v.y)*.15;
+    const sc=r=>(['tabib','penyembuh'].includes(roleOf(r))?120:0)+(r.hq&&r.hq===v.hq?120:0)+(r.party&&r.party===v.party?90:0)+(r.spouse===v.id||r.children.includes(v.id)||v.children.includes(r.id)?70:0)+(r.career==='penjaga'?30:0)+((r.rel[v.id]?.f)||0)*.3-dist(r.x,r.y,v.x,v.y)*.15;
     const r=cands.sort((a,b)=>sc(b)-sc(a))[0];
     v.downed.rescuer=r.id; r.path=[]; r.task={k:'rescue',target:v.id,phase:'go'}; r.mounted=null; goTo(r,v.x+7,v.y);
     FX_QUEUE.push({k:'alert',x:r.x,y:r.y-28,t:40});
@@ -2695,6 +2716,7 @@ function tryTame(u,m){
 function stepPet(m){
   const o=U(m.tamer);
   if(!o||o.dead){ releasePet(m,o); return; }
+  if(m.mk==='neko'&&o.downed&&nekoCarry(m,o)) return;
   if(m.cd>0) m.cd--;
   if(G.step%20===0&&m.hp<m.maxHp) m.hp=Math.min(m.maxHp,m.hp+m.maxHp*.02);
   const pt=o.party&&G.parties.find(p=>p.id===o.party);
@@ -2709,6 +2731,7 @@ function stepPet(m){
   else { m.path=[]; m.moving=false; m.dir='side'; m.flip=o.flip; }
 }
 function releasePet(m,o){
+  if(m.mk==='neko'){ m.dead=true; if(o) log(`${m.petName} si Neko duduk lama di samping makam ${o.name}, lalu menghilang ke hutan.`,'war',{x:m.x,y:m.y}); return; }
   m.tamer=null; m.name=MON[m.mk].n; m.bornStep=G.step; m.task=null; m.path=[];
   const n=G.nests.slice().sort((a,b)=>dist(a.x*TS,a.y*TS,m.x,m.y)-dist(b.x*TS,b.y*TS,m.x,m.y))[0]; m.nest=n?n.id:null;
   if(o) log(`${m.petName}, ${MON[m.mk].n} jinak milik ${o.name}, kehilangan tuannya dan kembali ke alam liar.`,'war',{x:m.x,y:m.y});
@@ -2969,7 +2992,7 @@ function boatsMove(){
 /* ---------- desa & pajak ---------- */
 function villagesYearly(){
   for(const k of G.kingdoms){
-    if(!k.alive) continue; const cap=TN(k.capital); if(!cap) continue;
+    if(!k.alive||k.hunter) continue; const cap=TN(k.capital); if(!cap) continue;
     for(const v of G.towns.filter(t=>t.kingdom===k.id&&t!==cap)){
       const ppl=G.units.filter(u=>!u.dead&&u.town===v.id&&isAdult(u)&&u.race!=='monster');
       let gold=0; for(const u of ppl){ const g=Math.min(u.gold,u.gold*k.tax*.5+1); u.gold-=g; gold+=g; }
@@ -2998,7 +3021,7 @@ function classOf(u){
 function classesYearly(){
   for(const u of G.units){ if(u.dead||u.race==='monster') continue; u.kelas=isAdult(u)?classOf(u):(U(u.father)||U(u.mother)||u).kelas||'bawah'; }
   for(const k of G.kingdoms){
-    if(!k.alive) continue; const kg=U(k.king); if(!kg) continue;
+    if(!k.alive||k.hunter) continue; const kg=U(k.king); if(!kg) continue;
     const greedy=has(kg,'Serakah')||has(kg,'Kejam')||(kg.corrupt||0)>=55;
     const fair=has(kg,'Adil')||has(kg,'Bijak');
     if(!k.zoning&&greedy&&rnd()<.35){ k.zoning=true; log(`${fullName(kg)} mengeluarkan titah pembagian wilayah: kalangan atas di sekitar istana, kalangan menengah di lingkar tengah, kalangan bawah di pinggir kota. Pajak rakyat jelata dinaikkan.`,'war',{x:kg.x,y:kg.y}); }
@@ -3264,7 +3287,7 @@ function partyStep(u,k){
     if(--p.t<=0||u.hp<u.maxHp*.35||!n||(p.quest&&p.kills>=(TN(p.town)?.quests?.find(q=>q.id===p.quest)?.n||99))){ p.state='back'; return; }
     if(!u.path.length&&n){ const a=rnd()*Math.PI*2; goTo(u,(n.x+Math.cos(a)*6)*TS,(n.y+Math.sin(a)*6)*TS); }
   } else if(p.state==='in'){
-    if(u===leader){ if(--p.t<=0) resolveDungeon(p); }
+    if(u===leader) runDungeon(p);
   } else if(p.state==='back'){
     u.inside=false;
     const t=TN(u.town); const gb=t&&townBuildings(t,'guild').find(b=>b.done); const d=gb?bldDoor(gb):(t?{x:(t.cx+1)*TS,y:(t.cy+2)*TS}:{x:u.x,y:u.y});
@@ -3346,46 +3369,92 @@ function lordAI(d){
     const r=lordAct(d,act,act==='trap'||act==='reward'?ri(1,d.maxFloor):d.maxFloor,'ai'); if(/tidak cukup|maksimal|kosong/.test(r)) break;
   }
 }
-function resolveDungeon(p){
+function dungeonPower(list){ return list.reduce((s,m)=>s+m.lvl*starMult(m)*(m.flags.potion?1.12:1)*(1+wAtk(m.weapon)/40)*(m.isekai?1.15:1)*(.9+(m.iq||100)/1000)+petsOf(m).reduce((a,id)=>{ const pt=U(id); return a+(pt?pt.atk*.35+pt.lvl*.6:0); },0),0); }
+function planDungeon(p){
   const d=G.dungeons.find(d=>d.id===p.target);
-  let mem=(p.out||p.members).map(U).filter(m=>m&&!m.dead);
-  if(!d||!mem.length){ p.state='back'; return; }
+  const mem0=(p.out||p.members).map(U).filter(m=>m&&!m.dead);
+  if(!d||!mem0.length){ p.state='back'; return; }
   ensureFloors(d); const L=ensureLord(d);
-  const power=()=>mem.reduce((s,m)=>s+m.lvl*starMult(m)*(m.flags.potion?1.12:1)*(1+wAtk(m.weapon)/40)*(m.isekai?1.15:1)*(.9+(m.iq||100)/1000)+petsOf(m).reduce((a,id)=>{ const pt=U(id); return a+(pt?pt.atk*.35+pt.lvl*.6:0); },0),0);
-  let floor=0, loot=0, xp=0, ore=0; const fallen=[];
+  let alive=mem0.slice(); const ev=[]; let T=16;
+  let floor=0, loot=0, xp=0, ore=0, lordWin=false;
+  ev.push({t:2,k:'enter'});
   for(let f=1;f<=d.maxFloor;f++){
-    const fl=d.floors[f-1];
-    const diff=(7*f+1.7*f*f)*floorMult(d,f); const pw=power(); const ok=rnd()<pw/(pw+diff*1.1);
-    for(const m of mem.slice()){
+    const fl=d.floors[f-1]; const tf=T;
+    const pool=[]; for(const [k,n] of Object.entries(fl.mons)) for(let i=0;i<n;i++) pool.push(k);
+    pool.sort(()=>rnd()-.5);
+    const ng=clamp(Math.ceil(pool.length/3),1,3); const groups=[]; for(let i=0;i<ng;i++) groups.push(pool.splice(0,Math.max(1,Math.ceil(pool.length/(ng-i)))).filter(Boolean));
+    const FD=50+ng*14;
+    ev.push({t:tf,k:'floor',f});
+    const gt=groups.map((g,i)=>tf+10+i*Math.round((FD-22)/ng));
+    groups.forEach((g,i)=>{ if(g.length) ev.push({t:gt[i],k:'fight',f,mons:g}); });
+    const diff=(7*f+1.7*f*f)*floorMult(d,f); const pw=dungeonPower(alive); const ok=rnd()<pw/(pw+diff*1.1);
+    const trapT=tf+Math.round(FD*.55); if(fl.trap&&rnd()<.5+fl.trap*.15) ev.push({t:trapT,k:'trap',f,lvl:fl.trap});
+    for(const m of alive.slice()){
       let risk=clamp((diff*.9-m.lvl*starMult(m)*2.4)/320,.004,ok?.25:.45)*(m.flags.potion?.6:1)*(has(m,'Pantang Menyerah')?.6:1)*(has(m,'Ceroboh')?1.4:1)*(1+fl.trap*.25);
-      if(rnd()<risk){ m.inside=false; const trapped=fl.trap&&rnd()<.4; die(m,null,trapped?`tewas terkena jebakan di lantai ${f} ${d.name}`:`gugur di lantai ${f} ${d.name}`); fallen.push(m); mem=mem.filter(x=>x!==m); d.soul=(d.soul||0)+10+m.lvl*3+BERKAT[m.b].s*4; }
+      if(rnd()<risk){ const trapped=fl.trap&&rnd()<.4; ev.push({t:trapped?trapT+2:gt[ri(0,gt.length-1)]+8,k:'death',uid:m.id,f,cause:trapped?`tewas terkena jebakan di lantai ${f} ${d.name}`:`gugur di lantai ${f} ${d.name}`,soul:10+m.lvl*3+BERKAT[m.b].s*4}); alive=alive.filter(x=>x!==m); }
     }
-    for(const m of mem) for(const id of petsOf(m)){ const pt=U(id); if(pt&&rnd()<clamp((diff-pt.maxHp*.12)/400,.01,.2)){ pt.inside=false; die(pt,null,`gugur di lantai ${f}`); d.soul=(d.soul||0)+5; } }
-    if(!mem.length) break;
-    if(!ok) break;
-    floor=f; loot+=(4*f*f+8)*(1+fl.reward*.6); xp+=10*f*Math.sqrt(floorMult(d,f)); if(d.ore) ore+=d.ore*f*.5;
+    for(const m of alive) for(const id of petsOf(m)){ const pt=U(id); if(pt&&rnd()<clamp((diff-pt.maxHp*.12)/400,.01,.2)) ev.push({t:gt[0]+9,k:'petdeath',uid:id,f}); }
+    if(!alive.length){ T=tf+FD; break; }
+    if(!ok){ ev.push({t:tf+FD-4,k:'retreat',f}); T=tf+FD; break; }
+    floor=f; const lt=(4*f*f+8)*(1+fl.reward*.6); loot+=lt; xp+=10*f*Math.sqrt(floorMult(d,f)); if(d.ore) ore+=d.ore*f*.5;
+    if(fl.reward||rnd()<.4) ev.push({t:tf+Math.round(FD*.8),k:'chest',f,gold:Math.round(lt)});
+    T=tf+FD;
     if(f===d.maxFloor&&d.demon){
-      const lp=(L?L.lvl:35)*3; const pw2=power();
-      if(rnd()<pw2/(pw2+diff*2+lp)){ const lname=L?L.name:'Raja Iblis'; const lu=L&&L.uid&&U(L.uid); d.demon=false; d.lord=null; G.demonCount=G.dungeons.filter(x=>x.demon).length; if(lu) die(lu,mem[0],`dikalahkan party ${p.name} di dasar ${d.name}`);
-        for(const m of mem){ m.title='Pembantai Raja Iblis'; gainXp(m,600); hist(m,`menumbangkan ${lname} di ${d.name}`); }
-        log(`Kemenangan! ${pName(p)} menumbangkan Raja Iblis ${lname} di dasar ${d.name}. Lonceng kuil berdentang di seluruh negeri.`,'hero',{x:d.x*TS,y:d.y*TS}); loot+=500+(d.soul||0); d.soul=0; plog(p,`Menumbangkan Raja Iblis ${lname}!`); }
-      else { for(const m of mem.slice()){ if(rnd()<.5){ m.inside=false; die(m,null,`dikalahkan Raja Iblis ${L?L.name:''} di ${d.name}`); fallen.push(m); mem=mem.filter(x=>x!==m); d.soul=(d.soul||0)+20+m.lvl*4; } } }
-      break;
+      ev.push({t:T,k:'boss',f,name:L?L.name:'Raja Iblis'});
+      const lp=(L?L.lvl:35)*3; const pw2=dungeonPower(alive);
+      if(rnd()<pw2/(pw2+diff*2+lp)){ lordWin=true; ev.push({t:T+40,k:'bosswin',f}); loot+=500+(d.soul||0); }
+      else { for(const m of alive.slice()) if(rnd()<.5){ ev.push({t:T+20+ri(0,15),k:'death',uid:m.id,f,cause:`dikalahkan Raja Iblis ${L?L.name:''} di ${d.name}`,soul:20+m.lvl*4}); alive=alive.filter(x=>x!==m); } }
+      T+=46; break;
     }
-    if(rnd()<.35+f*.04) break;
+    if(rnd()<.35+f*.04){ ev.push({t:T-2,k:'return',f}); break; }
   }
+  ev.push({t:T+12,k:'exit'});
+  ev.sort((a,b)=>a.t-b.t);
+  p.script={d:d.id,ev,i:0,el:0,T:T+12,floor,loot,xp,ore,lordWin,lordName:L?L.name:'Raja Iblis',lordUid:L&&L.uid,start:mem0.map(m=>m.id),fallen:[],cur:1,fight:null,dlog:[`${pName(p)} memasuki ${d.name}.`],seed:d.id*97+p.id};
+}
+function dlogPush(s,t){ s.dlog.push(t); if(s.dlog.length>8) s.dlog.shift(); }
+function runDungeon(p){
+  if(!p.script) planDungeon(p); const s=p.script; if(!s) return;
+  s.el++;
+  while(s.i<s.ev.length&&s.ev[s.i].t<=s.el){ applyDunEv(p,s.ev[s.i++]); if(!p.script) return; }
+}
+function applyDunEv(p,e){
+  const s=p.script, d=G.dungeons.find(x=>x.id===s.d);
+  if(e.k==='floor'){ s.cur=e.f; dlogPush(s,`Turun ke lantai ${e.f}.`); }
+  else if(e.k==='fight'){ s.fight={mons:e.mons,t0:s.el}; dlogPush(s,`Bertarung melawan ${[...new Set(e.mons)].map(k=>MON[k]?MON[k].n:k).join(', ')}.`); }
+  else if(e.k==='trap'){ dlogPush(s,`Jebakan tingkat ${e.lvl} aktif!`); s.trapAt=s.el; }
+  else if(e.k==='chest'){ dlogPush(s,`Menemukan peti harta (${e.gold} emas).`); s.chestAt=s.el; }
+  else if(e.k==='death'){ const m=U(e.uid); if(m&&!m.dead){ m.inside=false; die(m,null,e.cause); if(d) d.soul=(d.soul||0)+e.soul; s.fallen.push(m.id); dlogPush(s,`${m.name} gugur.`); }
+    if(!s.start.map(U).some(x=>x&&!x.dead)){ finishDungeon(p); return; } }
+  else if(e.k==='petdeath'){ const pt=U(e.uid); if(pt&&!pt.dead){ pt.inside=false; die(pt,null,`gugur di lantai ${e.f}`); if(d) d.soul=(d.soul||0)+5; dlogPush(s,`${pt.name} gugur.`); } }
+  else if(e.k==='boss'){ s.boss=s.el; dlogPush(s,`${e.name} menampakkan diri di dasar dungeon!`); }
+  else if(e.k==='bosswin'&&d){ const lname=s.lordName; const lu=s.lordUid&&U(s.lordUid); const mem=s.start.map(U).filter(x=>x&&!x.dead); d.demon=false; d.lord=null; G.demonCount=G.dungeons.filter(x=>x.demon).length; if(lu&&!lu.dead) die(lu,mem[0],`dikalahkan ${pName(p)} di dasar ${d.name}`);
+    for(const m of mem){ m.title='Pembantai Raja Iblis'; gainXp(m,600); hist(m,`menumbangkan ${lname} di ${d.name}`); }
+    log(`Kemenangan! ${pName(p)} menumbangkan Raja Iblis ${lname} di dasar ${d.name}. Lonceng kuil berdentang di seluruh negeri.`,'hero',{x:d.x*TS,y:d.y*TS}); d.soul=0; plog(p,`Menumbangkan Raja Iblis ${lname}!`); s.boss=null; s.bossDead=s.el; dlogPush(s,`Raja Iblis tumbang!`); }
+  else if(e.k==='retreat'){ dlogPush(s,'Musuh terlalu kuat. Party mundur.'); s.leaving=s.el; }
+  else if(e.k==='return'){ dlogPush(s,'Party memutuskan kembali ke permukaan.'); s.leaving=s.el; }
+  else if(e.k==='exit') finishDungeon(p);
+}
+function finishDungeon(p){
+  const s=p.script; if(!s) return; p.script=null;
+  const d=G.dungeons.find(x=>x.id===s.d);
+  const mem=s.start.map(U).filter(m=>m&&!m.dead), fallen=s.fallen.map(id=>person(id)).filter(Boolean);
+  const floor=s.floor, loot=s.loot;
+  if(!d){ p.out=mem.map(m=>m.id); p.state='back'; return; }
   d.deep=Math.max(d.deep,floor); p.floor=floor; p.record.lost+=fallen.length;
   const t=TN(p.town);
-  for(const m of mem){ m.gold+=loot/mem.length; gainXp(m,xp); m.deepest=Math.max(m.deepest,floor); m.flags.potion=false; m.inside=false; hist(m,`kembali dari ${d.name} (lantai ${floor})`); checkDream(m); m.x=(d.x+.5)*TS; m.y=(d.y+1.3)*TS; }
-  if(t&&ore>0&&mem.length){ const o=oreStock(t); const typ=d.ore>=3?'mithril':d.ore>=2?'perak':'besi'; o[typ]+=Math.round(ore); syncOre(t); }
-  for(const m of fallen) for(const o of mem) if(m.rel[o.id]&&m.rel[o.id].f>40) o.happy-=10;
+  for(const m of mem){ m.gold+=loot/mem.length; gainXp(m,s.xp); m.deepest=Math.max(m.deepest,floor); m.flags.potion=false; m.inside=false; hist(m,`kembali dari ${d.name} (lantai ${floor})`); checkDream(m); m.x=(d.x+.5)*TS; m.y=(d.y+1.3)*TS; }
+  if(t&&s.ore>0&&mem.length){ const o=oreStock(t); const typ=d.ore>=3?'mithril':d.ore>=2?'perak':'besi'; o[typ]+=Math.round(s.ore); syncOre(t); }
+  for(const m of fallen) for(const o of mem) if(m.rel&&m.rel[o.id]&&m.rel[o.id].f>40) o.happy-=10;
   const tx=(d.x+.5)*TS, ty=(d.y+1.2)*TS;
   if(fallen.length) plog(p,`Kehilangan ${fallen.map(m=>m.name).join(', ')} di ${d.name}.`);
   plog(p,`${d.name}: lantai ${floor}, ${Math.round(loot)} emas.`);
   if(!mem.length) log(`${pName(p)} tidak pernah keluar dari ${d.name}. ${fallen.map(m=>m.name).join(', ')} gugur di dalam.${d.demon?' Jiwa mereka menjadi santapan Raja Iblis.':''}`,'war',{x:tx,y:ty});
   else log(`${pName(p)} keluar dari ${d.name}: menembus lantai ${floor}, membawa ${Math.round(loot)} emas.${fallen.length?` ${fallen.map(m=>m.name).join(', ')} tidak ikut pulang.`:''}`,'dun',{x:tx,y:ty});
+  p.lastRun={d:d.id,dlog:s.dlog.slice(),y:yearInt()};
   p.out=mem.map(m=>m.id); p.state='back';
 }
+function resolveDungeon(p){ planDungeon(p); while(p.script) applyDunEv(p,p.script.ev[p.script.i++]||{k:'exit'}); }
 
 /* ---------- bayi Raja Iblis ---------- */
 function demonChildDaily(){
@@ -3441,7 +3510,7 @@ function isekaiRitual(k,forced){
 }
 function isekaiYearly(){
   for(const k of G.kingdoms){
-    if(!k.alive||(k.lastSummon!=null&&yearInt()-k.lastSummon<8)) continue;
+    if(!k.alive||k.hunter||(k.lastSummon!=null&&yearInt()-k.lastSummon<8)) continue;
     const kg=U(k.king); if(!kg) continue;
     const threat=G.demonCount>=1||(G.warbands||[]).some(w=>TN(w.town)?.kingdom===k.id);
     const dark=has(kg,'Kejam')||has(kg,'Ambisius')||has(kg,'Serakah')||(kg.corrupt||0)>=55;
@@ -3983,7 +4052,7 @@ function misery(k){
   return m;
 }
 function secessionYearly(){
-  const alive=G.kingdoms.filter(k=>k.alive);
+  const alive=G.kingdoms.filter(k=>k.alive&&!k.hunter);
   if(alive.length>=8) return;
   for(const k of alive){
     if(yearInt()-k.founded<10) continue;
@@ -4050,6 +4119,405 @@ function leadExodus(k,L,byVoice){
   return null;
 }
 
+/* =====================================================================
+   SIMULASI 8: populasi awal, monster baru, eksplorasi dungeon yang bisa
+   ditonton, Hunter Village
+   ===================================================================== */
+
+/* ---------- populasi awal ---------- */
+function populateKingdom(k,t,target){
+  const race=k.race, R=RACE[race];
+  let pop=G.units.filter(u=>!u.dead&&u.kingdom===k.id).length;
+  let tent=null, inTent=0;
+  const spot=()=>{ for(let i=0;i<80;i++){ const a=rnd()*Math.PI*2, r=4+rnd()*(t.R-6); const x=Math.round(t.cx+Math.cos(a)*r), y=Math.round(t.cy+3+Math.sin(a)*r*.7); if(buildable(tileAt(x,y))&&!G.road[y*MW+x]&&(G.occ[y*MW+x]===0||G.occ[y*MW+x]===4)) return {x,y}; } return {x:t.cx+ri(-10,10),y:t.cy+ri(3,10)}; };
+  while(pop<target){
+    if(!tent||inTent>=10){ const s=spot(); tent=addBuilding(t,'tenda',null,{x:s.x,y:s.y}); inTent=0; }
+    const px=(tent.x+1.5)*TS, py=(tent.y+3)*TS;
+    const h=makeUnit({race,sex:'m',age:adultAge(race,rnd()*.7),town:t.id,kingdom:k.id,home:tent.id,x:px,y:py});
+    pop++; inTent++;
+    if(rnd()<.75&&pop<target){ const w=makeUnit({race,sex:'f',age:adultAge(race,rnd()*.6),town:t.id,kingdom:k.id,home:tent.id,x:px+6,y:py,marga:h.marga}); marry(h,w,true); pop++; inTent++;
+      const kids=wpick([0,1,2,3],x=>[2,3,3,1][x]); for(let i=0;i<kids&&pop<target;i++){ makeUnit({race,age:rnd()*R.adult*.9,mother:w.id,father:h.id,town:t.id,kingdom:k.id,home:tent.id,x:px+ri(-8,8),y:py+ri(2,8),marga:h.marga}); pop++; inTent++; } }
+  }
+  for(const u of G.units) if(u.town===t.id&&isAdult(u)&&!u.career) assignCareer(u);
+  t.stock.food+=pop*22; t.stock.wood+=pop*2; t.stock.stone+=pop*1.5; k.treasury+=pop*3;
+}
+function setupPopulation(total){
+  const ks=G.kingdoms.filter(k=>k.alive); if(!ks.length) return;
+  const per=Math.round(total/ks.length);
+  for(const k of ks){ const t=TN(k.capital); if(t) populateKingdom(k,t,per); }
+  for(const k of ks){ const t=TN(k.capital); const pop=G.units.filter(u=>!u.dead&&u.town===t.id).length; let v=Math.floor((pop-80)/70); for(let i=0;i<Math.min(4,v);i++) foundVillage(t,k); }
+}
+
+/* ---------- monster batch 8 ---------- */
+Object.assign(MON,{
+  dodo:{n:'Dodo',k:'dodo',c:'#8a8a9a',rank:'F',hp:22,atk:2,spd:.6,xp:5,bounty:1,beast:1,d:'Burung gendut yang tak bisa terbang. Dagingnya enak.'},
+  speedprey:{n:'Speedprey',k:'raptor',c:'#5a8aa8',eye:'#ffe060',rank:'D',hp:75,atk:10,spd:1.6,xp:32,bounty:12,beast:1,d:'Raptor kecil yang berburu berkelompok. Sangat cepat.'},
+  speedoraptor:{n:'Speedoraptor',k:'raptorA',c:'#3a6a9a',eye:'#ffe060',rank:'B',sc:1.35,hp:320,atk:22,spd:1.6,xp:130,bounty:60,beast:1,skills:[{k:'summon',what:'speedprey',n:2,cd:380},{k:'roar',r:46,dur:90,cd:300}],d:'Pemimpin kawanan Speedprey. Teriakannya memanggil anak buahnya.'},
+  batroww:{n:'Batroww',k:'batroww',c:'#4a3a5a',eye:'#ff4a4a',rank:'C',hp:100,atk:12,spd:1.4,xp:46,bounty:18,beast:1,ranged:44,shot:'#c8c8d0',d:'Kelelawar berbulu gagak yang menembakkan bulu setajam panah.'},
+  nulleye:{n:'Nulleye Cavern',k:'nulleye',c:'#e8e0e4',rank:'A',sc:1.4,hp:520,atk:30,spd:.8,xp:230,bounty:110,beast:1,onHit:{k:'slow',p:.35},skills:[{k:'nova',r:34,dmg:1,cd:130,self:1,fx:'#bfe0ff',debuff:'slow'}],d:'Penghuni gua tanpa mata. Tubuhnya menyetrum siapa pun yang terlalu dekat.'},
+  shadowWyvern:{n:'Shadow Wyvern',k:'wyvern',c:'#2a2a3a',eye:'#c87aff',rank:'A',sc:1.25,hp:440,atk:36,spd:1.5,xp:230,bounty:105,beast:1,onHit:{k:'curse',p:.25},skills:[{k:'breath',range:56,dmg:.85,cd:120,fx:'#7a3fd0',debuff:'curse'}],d:'Wyvern bayangan yang menyerang dari kegelapan.'},
+  redDragon:{n:'Red Dragon',k:'dragonW',c:'#b83a2a',eye:'#ffd040',job:'#ffb040',rank:'S',sc:1.6,hp:1300,atk:62,spd:1,xp:640,bounty:320,beast:1,armor:12,onHit:{k:'burn',p:.35},skills:[{k:'breath',range:70,dmg:1.15,cd:100,fx:'#ff5a1a',debuff:'burn'},{k:'roar',r:70,dur:140,cd:300}],d:'Raja langit bersisik merah. Napasnya membakar padang rumput.'},
+  greenDragon:{n:'Green Dragon',k:'dragonW',c:'#4a8a3a',eye:'#ffe060',job:'#9aff5a',rank:'S',sc:1.6,hp:1200,atk:58,spd:1,xp:620,bounty:300,beast:1,armor:10,onHit:{k:'poison',p:.4},skills:[{k:'breath',range:64,dmg:1,cd:105,fx:'#9ad06a',debuff:'poison'},{k:'cleave',r:24,dmg:1.1,cd:60}],d:'Ratu hutan bersisik hijau. Ekornya berduri racun.'},
+  tyrvern:{n:'Tyrvern',k:'tyrvern',c:'#d8b060',eye:'#ff3a3a',rank:'S',sc:1.6,hp:1400,atk:70,spd:1.3,xp:680,bounty:340,beast:1,armor:10,skills:[{k:'roar',r:90,dur:170,cd:260},{k:'cleave',r:26,dmg:1.3,cd:50}],d:'Wyvern tiran bergaris biru. Raungannya bisa merobohkan pohon.'},
+  superKong:{n:'Super Kong',k:'kong',c:'#6a4a3a',rageC:'#e8c050',eye:'#ffd040',rank:'S',sc:1.6,hp:1500,atk:60,spd:1,xp:650,bounty:320,beast:1,skills:[{k:'nova',r:36,dmg:1.1,cd:120,self:1,fx:'#c8a080',debuff:'slow'},{k:'roar',r:70,dur:140,cd:300}],d:'Kera raksasa. Saat murka, bulunya berubah emas dan kekuatannya melonjak.'},
+  neko:{n:'Neko',k:'neko',c:'#e8c090',job:'#8a6a3a',rank:'D',hp:110,atk:10,spd:1.3,xp:0,bounty:0,beast:1,d:'Kucing yang bisa berdiri. Partner setia para Hunter.'},
+});
+const NEST_ADD8={FOREST:['speedprey','speedoraptor','greenDragon','superKong','dodo'],MOUNT:['redDragon','tyrvern','shadowWyvern','batroww','nulleye'],HILLS:['speedprey','dodo','redDragon','batroww'],DESERT:['speedprey','tyrvern'],GRASS:['dodo','speedprey']};
+FLOOR_POOL[3].push('nulleye','batroww'); FLOOR_POOL[4].push('shadowWyvern'); GACHA_POOL[3].push('batroww','speedoraptor'); GACHA_POOL[4].push('nulleye','shadowWyvern'); GACHA_POOL[5].push('redDragon','greenDragon','tyrvern','superKong');
+Object.assign(MON_DROP,{dodo:'Daging Dodo',speedprey:'Daging Speedprey',speedoraptor:'Daging Speedoraptor',batroww:'Sayap Batroww',nulleye:'Daging Nulleye',shadowWyvern:'Daging Shadow Wyvern',redDragon:'Daging Naga Merah',greenDragon:'Daging Naga Hijau',tyrvern:'Daging Tyrvern',superKong:'Daging Super Kong'});
+for(const k of ['dodo','speedprey','speedoraptor','batroww','nulleye','shadowWyvern','redDragon','greenDragon','tyrvern','superKong']){ const n=MON_DROP[k]; if(!INGR[n]){ INGR[n]={c:'monster',r:Math.min(4,Math.max(1,Math.floor(RANK_ORDER.indexOf(MON[k].rank)/1.6))),src:'monster'}; INGR_LIST.push(n); } }
+function worldUpgrade8(){
+  if(G.v8) return; G.v8=1;
+  for(const n of G.nests){ if(n.legend) continue; const tt=tileAt(n.x,n.y); const key=Object.keys(T).find(k=>T[k]===tt); for(const mk of NEST_ADD8[key]||[]) if(!n.pool.includes(mk)&&rnd()<.55) n.pool.push(mk); }
+}
+function kongRage(u){
+  if(u.mk!=='superKong'||u.flags.rage||u.hp>u.maxHp*.5) return;
+  u.flags.rage=1; u.atk*=1.5; u.hp=Math.min(u.maxHp,u.hp+u.maxHp*.15);
+  FX_QUEUE.push({k:'nova',x:u.x,y:u.y-10,r:40,c:'#ffd040',t:40,ring:1});
+  log(`${u.name} mengamuk! Bulunya berubah keemasan dan tenaganya melonjak.`,'war',{x:u.x,y:u.y});
+}
+
+/* ---------- Hunter Village ---------- */
+BERKAT.push({n:'Hunter',s:3,role:'hunter',job:'hunterHV',uniq:1,hv:1});
+BERKAT.push({n:'Tamer',s:3,role:'tamerhv',job:'tamerHV',uniq:1,hv:1});
+COMBAT_ROLES.add('hunter');
+BLD.pemandian={n:'Pemandian Umum',w:6,h:5,work:900,wood:25,stone:15};
+BLD.lisensi={n:'Balai Lisensi',w:8,h:6,work:1200,wood:30,stone:30};
+const HV_WEAPONS=['Pedang Besar','Palu Raksasa','Tombak Lance','Busur Berat','Pedang Ganda','Kapak Pedang','Gunlance','Glaive Serangga'];
+const NEKO_NAMES=['Mochi','Tora','Kumo','Nyanta','Shiro','Kuro','Momo','Tama','Mikan','Kinako','Puchi','Sora','Hana','Goma','Kotetsu','Daifuku'];
+const MOUNT_BEASTS=['griffin','pegasus','beruang','wolf','babi','dodo','speedprey','yeti'];
+const EGG_KINDS=['pegasus','griffin','wolf','dodo','salamander','speedprey','cockatrice','babi'];
+const HV_FIRST=['Garrick','Rowan','Brannoc','Halvard','Sigurd','Ulric','Dorian','Kestrel','Vesna','Thorne','Ingrid','Ragna'];
+function hvFund(d){ const k=hvKing(); if(k) k.treasury=Math.max(0,k.treasury+d); else if(G.hv) G.hv.fund+=d; }
+function hvKing(){ return G.hv&&G.hv.kingdom?K(G.hv.kingdom):null; }
+function hvTown(){ return G.hv&&G.hv.town?TN(G.hv.town):null; }
+function isHV(u){ return !!(BERKAT[u.b]&&BERKAT[u.b].hv); }
+function summonHunterShip(wx,wy){
+  if(G.hv&&G.hv.state!=='left') return 'Kapal Hunter sudah pernah datang ke dunia ini.';
+  const coastal=G.towns.filter(t=>!K(t.kingdom)?.hunter&&coastPoint(t));
+  let c=null;
+  if(wx!=null){ let bd=1e9; for(const t of coastal){ const cp=coastPoint(t); const d=dist(cp.x*TS,cp.y*TS,wx,wy); if(d<bd){bd=d;c=cp;} } }
+  if(!c&&coastal.length) c=coastPoint(pick(coastal));
+  if(!c) return 'Tidak ada pantai di dekat kerajaan mana pun.';
+  let shore=null; for(let r=1;r<6&&!shore;r++) for(let dy=-r;dy<=r&&!shore;dy++) for(let dx=-r;dx<=r&&!shore;dx++) if(isLand(tileAt(c.x+dx,c.y+dy))) shore={x:(c.x+dx+.5)*TS,y:(c.y+dy+.5)*TS};
+  if(!shore) return 'Pantainya tidak bisa didarati.';
+  let st=null; for(let i=0;i<300&&!st;i++){ const a=rnd()*Math.PI*2, r=24+rnd()*20; const x=Math.round(c.x+Math.cos(a)*r), y=Math.round(c.y+Math.sin(a)*r); if(tileAt(x,y)===T.DEEP||i>200&&tileAt(x,y)===T.WATER) st={x,y}; }
+  if(!st) st={x:c.x,y:c.y};
+  G.hv={state:'ship',ship:{x:(st.x+.5)*TS,y:(st.y+.5)*TS,tx:(c.x+.5)*TS,ty:(c.y+.5)*TS,mode:'in'},shore,crew:[],vet:null,tried:[],target:null,quests:[],groups:[],mat:{},matMk:{},fund:300,eggs:0,licensed:0,armors:0};
+  log('Sebuah kapal besar berlayar dari balik cakrawala. Layarnya bergambar dua pedang bersilang di atas cakar monster. Para Hunter dari dunia seberang telah tiba.','god',{x:G.hv.ship.x,y:G.hv.ship.y});
+  return null;
+}
+function hvTick(){
+  const hv=G.hv; if(!hv||!hv.ship) return;
+  const s=hv.ship;
+  if(s.mode==='in'||s.mode==='out'){ const dx=s.tx-s.x, dy=s.ty-s.y, d=Math.hypot(dx,dy); if(d>2){ s.x+=dx/d*.45; s.y+=dy/d*.45; s.flip=dx<0; } else if(s.mode==='in'){ s.mode='dock'; hvLand(); } else { hv.ship=null; } }
+}
+function hvLand(){
+  const hv=G.hv; const sh=hv.shore;
+  const mk=(o)=>{ const u=makeUnit(Object.assign({race:rnd()<.75?'manusia':'beastkin',age:ri(20,40),x:sh.x+ri(-16,16),y:sh.y+ri(-10,10),gold:ri(40,90)},o)); u.flags.hvWait=true; u.revealed=true; hv.crew.push(u.id); return u; };
+  const vet=mk({sex:'m',age:ri(46,55),b:BIDX('Hunter'),lvl:30,name:pick(HV_FIRST),gold:400}); vet.flags.epithet='the Veteran Hunter'; vet.traits=vet.traits.filter(t=>!['Penakut','Pemalas'].includes(t)); if(!has(vet,'Bijak')) vet.traits.push('Bijak'); hv.vet=vet.id;
+  for(let i=0;i<8;i++) mk({b:BIDX('Hunter'),lvl:ri(10,22),sex:rnd()<.7?'m':'f'});
+  for(let i=0;i<5;i++) mk({b:BIDX('Tamer'),lvl:ri(6,14),sex:rnd()<.5?'m':'f'});
+  const smith=mk({b:BIDX('Penempa Legendaris')>=0?BIDX('Penempa Legendaris'):BIDX('Penempa'),lvl:12,sex:'m'}); smith.flags.hvSmith=1;
+  mk({b:BIDX('Saudagar Ulung')>=0?BIDX('Saudagar Ulung'):BIDX('Pedagang'),lvl:6});
+  for(const id of hv.crew){ const u=U(id); hvOutfit(u); }
+  hv.state='asking'; hvNextKingdom();
+  log(`Para Hunter mendarat. ${vet.name} the Veteran Hunter, pria berbekas luka cakaran di wajahnya, berjalan menuju istana terdekat untuk meminta izin tinggal.`,'god',{x:sh.x,y:sh.y});
+}
+function hvOutfit(u){
+  if(BERKAT[u.b].n==='Hunter'){ equip(u,{id:newId(),name:pick(HV_WEAPONS),type:'Hunter',mat:'besi',rar:2,atk:10+Math.round(u.lvl*.5),maker:null,makerName:'Hunter Village',y:yearInt(),kills:0,owners:[]},'hadiah'); hvNeko(u); }
+  if(BERKAT[u.b].n==='Tamer'){ u.mountMon=pick(MOUNT_BEASTS); if(rnd()<.6) u.cart=true; }
+}
+function hvNeko(u){
+  if(petsOf(u).some(id=>U(id)&&U(id).mk==='neko')) return;
+  const m=spawnMonster('neko',u.x+8,u.y,null); m.tamer=u.id; m.petName=pick(NEKO_NAMES); m.name=`${m.petName} si Neko`; m.monC=pick(['#e8c090','#f4f0e8','#3a3a3a','#c8783a','#a8a8b0','#e8d8b8']); m.nest=null; m.flags={};
+  u.pets=petsOf(u).concat(m.id); hist(u,`menamai Neko-nya ${m.petName}`);
+}
+function hvNextKingdom(){
+  const hv=G.hv; const sh=hv.shore;
+  const ks=G.kingdoms.filter(k=>k.alive&&!k.hunter&&!hv.tried.includes(k.id)&&TN(k.capital)).sort((a,b)=>{ const ta=TN(a.capital), tb=TN(b.capital); return dist((ta.cx+1)*TS,(ta.cy+1)*TS,sh.x,sh.y)-dist((tb.cx+1)*TS,(tb.cy+1)*TS,sh.x,sh.y); });
+  if(!ks.length){ hv.state='left'; for(const id of hv.crew){ const u=U(id); if(u){ for(const p of petsOf(u)){ const m=U(p); if(m) m.dead=true; } u.dead=true; } } hv.crew=[]; if(hv.ship){ hv.ship.mode='out'; hv.ship.tx=hv.ship.x+(hv.ship.x-sh.x)*4; hv.ship.ty=hv.ship.y+(hv.ship.y-sh.y)*4; }
+    log('Tak satu kerajaan pun mengizinkan para Hunter tinggal. Kapal mereka berlayar pergi tanpa menoleh lagi.','war',{x:sh.x,y:sh.y}); return; }
+  hv.target=ks[0].id;
+}
+function hvDecide(){
+  const hv=G.hv; const k=K(hv.target); const kg=U(k.king); const vet=U(hv.vet);
+  let p=.8; if(kg){ if(has(kg,'Kejam')) p-=.45; if(has(kg,'Pemarah')) p-=.15; if(has(kg,'Adil')||has(kg,'Bijak')) p+=.2; if(has(kg,'Serakah')) p+=.05; if((kg.corrupt||0)>=55) p-=.2; }
+  hv.tried.push(k.id);
+  if(rnd()>p){ log(`${fullName(kg)||'Penguasa '+k.name} menolak permintaan ${vet.name} the Veteran Hunter. "Orang asing bersenjata tidak diterima di tanahku." Para Hunter mencoba kerajaan lain.`,'war',{x:vet.x,y:vet.y}); hvNextKingdom(); return; }
+  const cap=TN(k.capital);
+  const site=hvSite(cap);
+  if(!site){ log(`${k.name} mengizinkan para Hunter tinggal, tapi tidak ada lahan yang cocok di sekitarnya.`,'life'); hvNextKingdom(); return; }
+  hv.site=site; hv.ally=k.id; hv.state='moving';
+  const tribute=kg&&has(kg,'Serakah')?150:0; if(tribute){ hv.fund-=tribute; k.treasury+=tribute; }
+  if(kg){ relOf(kg,vet.id).f+=30; relOf(vet,kg.id).f+=30; }
+  log(`${fullName(kg)||k.name} mengizinkan para Hunter tinggal${tribute?` setelah menerima upeti ${tribute} emas`:''}. "Kami hanya mengurus monster. Urusan manusia bukan bagian kami," kata ${vet.name} the Veteran Hunter. Mereka berangkat mencari lahan yang nyaman.`,'life',{x:vet.x,y:vet.y});
+}
+function hvSite(cap){
+  let best=null,bs=-1e9;
+  for(let i=0;i<900;i++){
+    const a=rnd()*Math.PI*2, r=cap.R+18+rnd()*55; const x=Math.round(cap.cx+Math.cos(a)*r), y=Math.round(cap.cy+Math.sin(a)*r);
+    if(x<18||y<18||x>MW-19||y>MH-19) continue;
+    if(G.towns.some(t=>dist(t.cx,t.cy,x,y)<t.R+18)) continue;
+    if((G.dens||[]).some(d=>dist(d.x,d.y,x,y)<26)) continue;
+    if(G.nests.some(n=>n.legend&&dist(n.x,n.y,x,y)<42)||G.dungeons.some(d=>dist(d.x,d.y,x,y)<14)) continue;
+    let s=0, wild=0;
+    for(let dy=-14;dy<=14;dy+=2)for(let dx=-14;dx<=14;dx+=2){ if(dx*dx+dy*dy>196) continue; const t=tileAt(x+dx,y+dy); s+=buildable(t)?2:-4; }
+    for(let dy=-26;dy<=26;dy+=4)for(let dx=-26;dx<=26;dx+=4){ const t=tileAt(x+dx,y+dy); if(t===T.FOREST||t===T.MOUNT||t===T.HILLS) wild++; }
+    s+=wild*.8-r*.3;
+    if(s>bs){ bs=s; best={x,y}; }
+  }
+  return bs>60?best:null;
+}
+function hvWaitTask(u){
+  const hv=G.hv; if(!hv||hv.state==='founded'||hv.state==='left'){ u.flags.hvWait=false; return false; }
+  if(hv.state==='asking'&&u.id===hv.vet){ const k=K(hv.target); const cap=k&&TN(k.capital); if(!cap){ hvNextKingdom(); u.task={k:'idle',t:20}; return true; }
+    const pal=townBuildings(cap,'istana').find(b=>b.done); const d=pal?bldDoor(pal):{x:(cap.cx+1)*TS,y:(cap.cy+1)*TS};
+    if(dist(u.x,u.y,d.x,d.y)<18){ FX_QUEUE.push({k:'say',x:u.x,y:u.y-26,t:60,s:'Izinkan kami tinggal'}); hvDecide(); u.task={k:'idle',t:40}; return true; }
+    goTo(u,d.x,d.y+2); u.task={k:'idle',t:30}; return true; }
+  if(hv.state==='moving'&&hv.site){ const x=(hv.site.x+1)*TS, y=(hv.site.y+2)*TS;
+    if(u.id===hv.vet&&dist(u.x,u.y,x,y)<34){ foundHunterVillage(); return true; }
+    if(dist(u.x,u.y,x,y)>30) goTo(u,x+ri(-20,20),y+ri(-14,14)); u.task={k:'idle',t:50}; return true; }
+  const c=hv.shore; if(dist(u.x,u.y,c.x,c.y)>40) goTo(u,c.x+ri(-20,20),c.y+ri(-12,12)); u.task={k:'idle',t:ri(60,140)}; return true;
+}
+function foundHunterVillage(){
+  const hv=G.hv; const vet=U(hv.vet); const site=hv.site;
+  const k={id:newId(),race:'manusia',name:'Persekutuan Hunter',color:'#c8a050',capital:null,king:vet?vet.id:null,queen:null,consorts:[],treasury:hv.fund,tax:0,welfare:70,founded:yearInt(),alive:true,heir:null,hunter:true};
+  G.kingdoms.push(k);
+  const t=newTown(k,site.x,site.y,true,15); t.name='Hunter Village'; k.capital=t.id; t.hunter=true; t.phase='tumbuh'; t.walled=false;
+  t.stock.food=500; t.stock.wood=260; t.stock.stone=200;
+  const pal=t.palace; const lic=addBuilding(t,'lisensi',{x:pal.x+2,y:pal.y+1});
+  for(const type of ['guild','bengkel','pasar','pemandian','lumbung']){ const s=freeSlot(t); if(s) addBuilding(t,type,s); }
+  const tents=[]; for(let i=0;i<4;i++){ const x=site.x+ri(-8,8), y=site.y+ri(2,9); if(buildable(tileAt(x,y))) tents.push(addBuilding(t,'tenda',null,{x,y})); }
+  for(const id of hv.crew){ const u=U(id); if(!u) continue; u.flags.hvWait=false; u.town=t.id; u.kingdom=k.id; u.home=(tents.length?pick(tents):lic).id; u.task=null; u.career=null; assignCareer(u); }
+  if(vet){ vet.title='Kepala Desa'; vet.royal=k.id; }
+  hv.state='founded'; hv.town=t.id; hv.kingdom=k.id; t.hunterTown=true;
+  if(hv.ship){ hv.ship.mode='out'; hv.ship.tx=hv.ship.x+(hv.ship.x-hv.shore.x)*4; hv.ship.ty=hv.ship.y+(hv.ship.y-hv.shore.y)*4; }
+  log(`Hunter Village berdiri. ${vet?vet.name+' the Veteran Hunter':'Para Hunter'} menancapkan panji dua pedang di tanah baru. Guild Hall, bengkel, pasar, pemandian umum, dan Balai Lisensi mulai dibangun. Mereka menyebut diri mereka Hunter dan Tamer.`,'hero',{x:(site.x+1)*TS,y:(site.y+1)*TS});
+}
+/* quest board */
+function legendNear(px,py,r){ return G.units.find(m=>!m.dead&&m.race==='monster'&&!m.tamer&&MON[m.mk]&&MON[m.mk].legend&&!MON[m.mk].sea&&dist(m.x,m.y,px,py)<r*TS)||null; }
+function hvQuestsDaily(t){
+  const hv=G.hv; hv.quests=hv.quests.filter(q=>!q.done);
+  if(hv.quests.filter(q=>!q.taken).length>=4) return;
+  const r=rnd(); let q=null;
+  const hs=G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='hunter'); const avg=hs.length?hs.reduce((s,u)=>s+u.lvl,0)/hs.length:1; const maxRk=4+(avg>=14?1:0)+(avg>=26?1:0)+(avg>=36?1:0);
+  if(r<.35&&hs.length>=3){ const big=G.units.filter(m=>!m.dead&&m.race==='monster'&&!m.tamer&&!m.flags.warband&&!m.flags.den&&!m.flags.sea&&!m.inside&&!(MON[m.mk]&&MON[m.mk].demon)&&RANK_ORDER.indexOf(MON[m.mk].rank)>=4&&RANK_ORDER.indexOf(MON[m.mk].rank)<=maxRk&&!legendNear(m.x,m.y,30)&&dist(m.x,m.y,(t.cx+1)*TS,(t.cy+1)*TS)<130*TS&&!hv.quests.some(o=>o.target===m.id));
+    if(!big.length){ const ns=G.nests.filter(n=>!n.legend&&!legendNear((n.x+.5)*TS,(n.y+.5)*TS,32)&&dist(n.x,n.y,t.cx,t.cy)<150&&n.pool.some(k=>RANK_ORDER.indexOf(MON[k].rank)>=4&&!MON[k].demon)); const n=ns.length?pick(ns):null; if(n){ const ks=n.pool.filter(k=>RANK_ORDER.indexOf(MON[k].rank)>=4&&!MON[k].demon&&RANK_ORDER.indexOf(MON[k].rank)<=maxRk); if(ks.length){ const m=spawnMonster(pick(ks),(n.x+.5+rnd()*3)*TS,(n.y+.5+rnd()*3)*TS,n); m.bornStep=G.step; big.push(m); plogHV(`Pengintai melaporkan ${MON[m.mk].n} di sekitar ${n.name}.`); } } }
+    if(big.length){ const m=big.sort((a,b)=>dist(a.x,a.y,(t.cx+1)*TS,(t.cy+1)*TS)-dist(b.x,b.y,(t.cx+1)*TS,(t.cy+1)*TS))[ri(0,Math.min(2,big.length-1))]; const rk=RANK_ORDER.indexOf(MON[m.mk].rank); q={type:'hunt',target:m.id,name:`Buru ${MON[m.mk].n}`,reward:Math.round(60+rk*rk*12),size:4}; } }
+  if(!q&&r<.7){ const ns=G.nests.filter(n=>!n.legend&&!legendNear((n.x+.5)*TS,(n.y+.5)*TS,32)&&dist(n.x,n.y,t.cx,t.cy)<150).sort((a,b)=>dist(a.x,a.y,t.cx,t.cy)-dist(b.x,b.y,t.cx,t.cy)).slice(0,4).sort(()=>rnd()-.5); if(ns.length){ const n=ns[0]; const c=ri(5,9); q={type:'slay',nest:n.id,n:c,name:`Bantai ${c} monster kroco di ${n.name}`,reward:40+c*6,size:ri(2,4)}; } }
+  if(!q&&rnd()<.25){ const ks=G.towns.filter(o=>!o.hunter&&o.cap).sort((a,b)=>dist(a.cx,a.cy,t.cx,t.cy)-dist(b.cx,b.cy,t.cx,t.cy)); if(ks.length){ q={type:'ekspedisi',town:ks[ri(0,Math.min(1,ks.length-1))].id,name:`Ekspedisi mencari bijih ke ${ks[0].name}`,reward:50,size:2}; q.name=`Ekspedisi mencari bijih ke ${TN(q.town).name}`; } }
+  if(!q){ const v=(G.veins||[]).filter(v=>dist(v.x,v.y,t.cx,t.cy)<70).sort(()=>rnd()-.5)[0]; if(v&&rnd()<.5) q={type:'gather',x:v.x,y:v.y,what:'ore',ore:v.type,name:`Kumpulkan bijih ${ORE[v.type].n.toLowerCase()}`,reward:35,size:ri(2,3)};
+    else { let spot=null; for(let i=0;i<60&&!spot;i++){ const x=t.cx+ri(-40,40), y=t.cy+ri(-40,40); if(tileAt(x,y)===T.FOREST) spot={x,y}; } if(spot) q={type:'gather',x:spot.x,y:spot.y,what:'herbal',name:'Kumpulkan herbal dan jamur hutan',reward:30,size:ri(2,3)}; } }
+  if(q){ q.id=newId(); q.y=yearInt(); hv.quests.push(q); }
+}
+function hvFormGroups(t){
+  const hv=G.hv;
+  const free=G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='hunter'&&isAdult(u)&&!u.hq&&!u.sick&&!u.downed&&!u.patient&&!u.possessed&&u.hp>u.maxHp*.65);
+  for(const q of hv.quests){
+    if(q.taken||free.length<(q.type==='hunt'?3:2)) continue;
+    if(q.type==='hunt'){ const m=U(q.target); if(!m||m.dead){ q.done=true; continue; } }
+    const n=Math.min(q.size||4,4,free.length);
+    const first=free.splice(ri(0,free.length-1),1)[0]; const mem=[first];
+    while(mem.length<n&&free.length){ free.sort((a,b)=>((a.flags.lastMates||[]).includes(first.id)?1:0)-((b.flags.lastMates||[]).includes(first.id)?1:0)+rnd()*.8-.4); mem.push(free.shift()); }
+    const g={id:newId(),q:q.id,members:mem.map(u=>u.id),leader:first.id,state:'go',age:0,kills:0,carcass:null};
+    hv.groups.push(g); q.taken=g.id;
+    for(const u of mem){ u.hq=g.id; u.task=null; u.path=[]; u.flags.lastMates=mem.filter(v=>v!==u).map(v=>v.id); for(const v of mem) if(v!==u){ const r=relOf(u,v.id); r.f=Math.min(100,r.f+3); } }
+    const gb=townBuildings(t,'guild').find(b=>b.done); if(gb) FX_QUEUE.push({k:'say',x:bldDoor(gb).x,y:bldDoor(gb).y-20,t:60,s:'Quest diterima!'});
+  }
+}
+function hvGroup(u){ return G.hv&&u.hq?G.hv.groups.find(g=>g.id===u.hq)||null:null; }
+function hvQuest(g){ return G.hv.quests.find(q=>q.id===g.q); }
+function hvTarget(g,q){
+  if(q.type==='hunt'){ const m=U(q.target); return m&&!m.dead?{x:m.x,y:m.y}:null; }
+  if(q.type==='slay'){ const n=G.nests.find(n=>n.id===q.nest); return n?{x:(n.x+.5)*TS,y:(n.y+1)*TS}:null; }
+  if(q.type==='gather') return {x:(q.x+.5)*TS,y:(q.y+.5)*TS};
+  if(q.type==='ekspedisi'){ const t=TN(q.town); const mk=t&&townBuildings(t,'pasar').find(b=>b.done); return t?(mk?bldDoor(mk):{x:(t.cx+1)*TS,y:(t.cy+2)*TS}):null; }
+}
+function hqStep(u){
+  const g=hvGroup(u); if(!g){ u.hq=null; u.task=null; return; }
+  const q=hvQuest(g); const lead=U(g.leader)&&!U(g.leader).dead?U(g.leader):g.members.map(U).find(v=>v&&!v.dead);
+  if(!q||!lead){ hvDisband(g,false); return; }
+  g.leader=lead.id;
+  const t=hvTown();
+  if(g.state==='back'){ const gb=t&&townBuildings(t,'guild').find(b=>b.done); const d=gb?bldDoor(gb):t?{x:(t.cx+1)*TS,y:(t.cy+2)*TS}:{x:u.x,y:u.y};
+    if(u===lead){ if(dist(u.x,u.y,d.x,d.y)<22){ hvComplete(g,q); return; } if(!u.path.length) goTo(u,d.x,d.y+2); }
+    else if(G.step%12===0) goTo(u,lead.x+ri(-10,10),lead.y+ri(2,8));
+    u.task={k:'hq'}; return; }
+  g.started=g.started||G.step; g.age=G.step-g.started; if(g.age>DAY*4&&g.state!=='back'){ g.state='back'; g.fail=!g.carcass; return; }
+  if(u===lead&&G.step%30===0){ const lg=legendNear(u.x,u.y,22); if(lg){ g.state='back'; g.fail=!g.slain; plogHV(`${q.name} dibatalkan: ${MON[lg.mk].n} terlihat di dekat lokasi.`); for(const id of g.members){ const v=U(id); if(v){ v.task=null; v.path=[]; } } return; } }
+  const tg=hvTarget(g,q); if(!tg){ g.state='back'; g.fail=!g.slain; return; }
+  const d=dist(lead.x,lead.y,tg.x,tg.y);
+  if(q.type==='hunt'){ const m=U(q.target); if(m&&!m.dead&&dist(u.x,u.y,m.x,m.y)<150&&isHostile(u,m)){ u.task={k:'fight',target:m.id}; return; }
+    if(u===lead){ if(!u.path.length||G.step%30===0) goTo(u,tg.x+ri(-10,10),tg.y+ri(-6,6)); } else if(G.step%12===0) goTo(u,lead.x+ri(-12,12),lead.y+ri(2,8));
+    u.task={k:'hq'}; return; }
+  if(g.state==='go'){
+    if(u===lead){ if(d<30){ g.state='do'; g.until=G.step+(q.type==='slay'?DAY*1.2:q.type==='ekspedisi'?60:DAY*.45); } else if(!u.path.length) goTo(u,tg.x,tg.y); }
+    else if(G.step%12===0) goTo(u,lead.x+ri(-12,12),lead.y+ri(2,8));
+    u.task={k:'hq'}; return; }
+  if(g.state==='do'){
+    if(u===lead&&G.step>=g.until){ if(q.type==='slay'&&g.kills<q.n) g.fail=true; if(q.type==='gather') hvGather(g,q); if(q.type==='ekspedisi') hvExpedition(g,q); g.state='back'; return; }
+    if(q.type==='slay'&&g.kills>=q.n){ g.state='back'; return; }
+    if(!u.path.length){ const a=rnd()*Math.PI*2; goTo(u,tg.x+Math.cos(a)*40,tg.y+Math.sin(a)*30); }
+    if(q.type==='gather'&&G.step%40===u.id%40) FX_QUEUE.push({k:'say',x:u.x,y:u.y-24,t:20,s:q.what==='ore'?'⛏':'✿'});
+    u.task={k:'hq'}; return; }
+}
+function hvKill(killer,m){
+  const g=hvGroup(killer); if(!g) return; g.kills++;
+  const q=hvQuest(g); if(q&&q.type==='hunt'&&q.target===m.id){ g.slain=true; g.state='back'; const big=RANK_ORDER.indexOf(MON[m.mk].rank)>=5; if(big) g.carcass={mk:m.mk,name:MON[m.mk].n};
+    log(`Grup Hunter (${g.members.map(U).filter(Boolean).map(v=>v.name).join(', ')}) berhasil memburu ${MON[m.mk].n}.${big?' Mereka menyeret bangkainya pulang ke Hunter Village untuk dikuliti.':''}`,big?'hero':'life',{x:m.x,y:m.y}); }
+  const t=hvTown(); if(t) t.stock.food+=4;
+}
+function hvGather(g,q){ const t=hvTown(); if(!t) return; const n=g.members.length;
+  if(q.what==='ore'){ const o=oreStock(t); o[q.ore]+=n*ri(2,4); syncOre(t); }
+  else { for(let i=0;i<n*2;i++){ const pool=INGR_LIST.filter(x=>['jamur','herbal'].includes(INGR[x].c)); addIngr(t,pick(pool),ri(1,2)); } } }
+function hvExpedition(g,q){ const t=hvTown(), dt=TN(q.town); if(!t||!dt) return; const k=K(dt.kingdom); const o=oreStock(t), od=oreStock(dt); const types=['besi','perak','mithril']; let got=0;
+  for(const ty of types){ const take=Math.min(od[ty],ri(2,6)); if(take>0){ od[ty]-=take; o[ty]+=take; got+=take; } } syncOre(t); syncOre(dt);
+  const pay=got*8; if(k) k.treasury+=pay; hvFund(-pay); if(got) plogHV(`Ekspedisi ke ${dt.name} membawa pulang ${got} bijih.`); }
+function plogHV(text){ G.hv.log=G.hv.log||[]; G.hv.log.unshift(`Th ${yearInt()}: ${text}`); if(G.hv.log.length>16) G.hv.log.pop(); }
+const MAT_WORD=m=>['wyvern','dragonW','dragonE','tyrvern','shadowWyvern','nulleye','serpent','hydra','basilisk'].includes(MON[m].k)?'Sisik':['phoenix','thunderbird','griffin','griffinK','harpy','cockatrice'].includes(MON[m].k)?'Bulu':'Kulit';
+function hvComplete(g,q){
+  const t=hvTown(); const mem=g.members.map(U).filter(v=>v&&!v.dead);
+  if(!g.fail||g.carcass||g.slain){
+    const pay=q.reward; hvFund(-pay*.3); for(const m of mem){ m.gold+=pay/mem.length; gainXp(m,15+pay*.2); m.flags.hquests=(m.flags.hquests||0)+1; }
+    if(g.carcass){ const rk=RANK_ORDER.indexOf(MON[g.carcass.mk].rank); const mat=`${MAT_WORD(g.carcass.mk)} ${g.carcass.name}`; const qn=ri(3,5)+(rk>=6?2:0);
+      G.hv.mat[mat]=(G.hv.mat[mat]||0)+qn; G.hv.matMk[mat]=g.carcass.mk; G.hv.matOwner=G.hv.matOwner||{}; G.hv.matOwner[mat]=mem.map(v=>v.id);
+      if(t){ t.stock.food+=12+rk*6; if(MON_DROP[g.carcass.mk]) addIngr(t,MON_DROP[g.carcass.mk],3); }
+      plogHV(`${q.name}: bangkai dikuliti, mendapat ${qn} ${mat}.`); }
+    else plogHV(`${q.name} selesai oleh ${mem.map(v=>v.name).join(', ')}.`);
+  } else plogHV(`${q.name} gagal.`);
+  q.done=true; hvDisband(g,true);
+}
+function hvDisband(g,done){ for(const id of g.members){ const u=U(id); if(u){ u.hq=null; if(u.task&&u.task.k==='hq') u.task=null; } } G.hv.groups=G.hv.groups.filter(x=>x!==g); const q=hvQuest(g); if(q&&!q.done) q.taken=null; }
+/* armor monster */
+function hvCraftDaily(t){
+  const hv=G.hv; if(!hasDone(t,'bengkel')) return;
+  const smith=G.units.find(u=>!u.dead&&u.town===t.id&&u.flags.hvSmith)||G.units.find(u=>!u.dead&&u.town===t.id&&roleOf(u)==='tempa'&&isAdult(u));
+  if(!smith) return;
+  const mats=Object.keys(hv.mat).filter(m=>hv.mat[m]>=3).sort((a,b)=>RANK_ORDER.indexOf(MON[hv.matMk[b]].rank)-RANK_ORDER.indexOf(MON[hv.matMk[a]].rank));
+  if(!mats.length) return;
+  const o=oreStock(t); const ore=['mithril','perak','besi'].find(x=>o[x]>=2); if(!ore) return;
+  const mat=mats[0], mk=hv.matMk[mat], rk=RANK_ORDER.indexOf(MON[mk].rank);
+  const def=Math.round(8+rk*5+ORE[ore].atk*.6);
+  const buyer=G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='hunter'&&armorDef(u.armorItem)<def-2).sort((a,b)=>b.gold-a.gold)[0];
+  if(!buyer) return;
+  const price=Math.round(def*6);
+  if(buyer.gold<price*.6) return;
+  hv.mat[mat]-=3; if(hv.mat[mat]<=0) delete hv.mat[mat]; o[ore]-=2; syncOre(t);
+  const paid=Math.min(buyer.gold,price); buyer.gold-=paid; smith.gold+=paid*.5;
+  const owners=(hv.matOwner&&hv.matOwner[mat]||[]).map(U).filter(v=>v&&v!==buyer); for(const ow of owners) ow.gold+=paid*.5/owners.length;
+  const fx=MON[mk].onHit?{burn:'api',poison:'racun',slow:'es',curse:'bayang'}[MON[mk].onHit.k]:null;
+  const a={id:newId(),name:`Zirah ${MON[mk].n}`,type:'Zirah',mat:ore,rar:rk>=7?5:rk>=6?4:3,def,maker:smith.id,makerName:smith.name,y:yearInt(),armor:1,owners:[buyer.name],monster:mk};
+  if(rk>=5) a.ench={k:'baja',lvl:Math.min(5,rk-3),by:`bahan ${MON[mk].n}`};
+  if(buyer.armorItem&&t.armorShop) t.armorShop.push(buyer.armorItem);
+  buyer.armorItem=a; hv.armors++; hist(buyer,`memesan ${a.name} dari ${smith.name}`); gainXp(smith,4);
+  log(`Di bengkel Hunter Village, ${smith.name} menempa ${a.name} (+${def}) dari ${mat.toLowerCase()} dan bijih ${ORE[ore].n.toLowerCase()} untuk ${buyer.name}.${owners.length&&owners[0]!==buyer?` Bahannya dibeli dari ${owners.map(v=>v.name).slice(0,3).join(', ')}.`:''}`,rk>=6?'hero':'god',{x:smith.x,y:smith.y});
+}
+/* lisensi */
+function licenseUnit(u,why){
+  const t=hvTown(), k=hvKing(); if(!t||!k) return;
+  const old=BERKAT[u.b].n;
+  const tamer=!!tamerInfo(u)||has(u,'Pencinta Alam')||['ternak','buru'].includes(BERKAT[u.b].role)&&rnd()<.5;
+  u.flags.formerBerkat=old; u.b=BIDX(tamer?'Tamer':'Hunter'); u.jobOverride=null; u.revealed=true; recalcStats(u);
+  if(u.party){ const p=partyOf(u); if(p) partyLeave(p,u,'pindah ke Hunter Village'); }
+  if(u.royal){ u.royal=null; } if(u.title&&!['Kepala Desa'].includes(u.title)) u.title=null;
+  u.town=t.id; u.kingdom=k.id; const tent=G.blds.find(b=>b.town===t.id&&b.type==='tenda'); u.home=tent?tent.id:null; u.career=null; assignCareer(u); hvOutfit(u);
+  goTo(u,(t.cx+1)*TS+ri(-20,20),(t.cy+2)*TS+ri(-10,10));
+  G.hv.licensed++; hist(u,`menerima lisensi ${tamer?'Tamer':'Hunter'} di Balai Lisensi (berkat lama: ${old})`);
+  return tamer?'Tamer':'Hunter';
+}
+function hvLicenseDaily(t){
+  if(!hasDone(t,'lisensi')) return;
+  for(const u of G.units){ if(u.dead||u.town!==t.id||u.race==='monster'||!isAdult(u)||isHV(u)||u.flags.hvSmith||u.flags.hvKeep) continue; if(BERKAT[u.b].n==='Saudagar Ulung'||BERKAT[u.b].n==='Pedagang'){ u.flags.hvKeep=1; continue; } const r=licenseUnit(u); log(`${u.name}, anak Hunter Village, menerima lisensi ${r} pertamanya di Balai Lisensi.`,'life',{x:u.x,y:u.y}); }
+  const pop=G.units.filter(u=>!u.dead&&u.town===t.id).length; if(pop>=70||rnd()>(pop<20?.6:.15)) return;
+  const c=G.units.filter(u=>!u.dead&&u.race!=='monster'&&isAdult(u)&&stageOf(u)==='dewasa'&&u.kingdom&&!K(u.kingdom)?.hunter&&!u.royal&&!u.flags.istana&&!u.possessed&&!u.captive&&!u.inside&&!['guild','guru','istana'].includes(u.career)&&(has(u,'Jiwa Petualang')||has(u,'Pencinta Alam')||tamerInfo(u)||u.career==='petualang'&&(u.happy||60)<60)&&!(u.spouse&&U(u.spouse)&&!isHV(U(u.spouse))&&rnd()<.6));
+  const u=pick(c); if(!u) return;
+  const fromT=TN(u.town); const fam=[u]; const sp=U(u.spouse); if(sp&&!sp.royal&&rnd()<.6) fam.push(sp);
+  for(const cid of u.children){ const ch=U(cid); if(ch&&!ch.dead&&!isAdult(ch)) fam.push(ch); }
+  const r=licenseUnit(u);
+  for(const f of fam) if(f!==u){ if(isAdult(f)) licenseUnit(f); else { f.town=t.id; f.kingdom=hvKing().id; f.home=u.home; goTo(f,u.x+ri(-10,10),u.y+ri(-6,6)); } }
+  log(`${u.name} ${u.marga} meninggalkan ${fromT?fromT.name:'kampungnya'}${fam.length>1?' bersama keluarganya':''} dan mendaftar di Balai Lisensi Hunter Village. Berkat lamanya, ${u.flags.formerBerkat}, dihapus. Kini ia seorang ${r}.`,'life',{x:u.x,y:u.y});
+}
+/* tugas harian hunter & tamer */
+function hunterTask(u,t){
+  if(u.hq){ u.task={k:'hq'}; return; }
+  const f=dayFrac();
+  const bath=townBuildings(t,'pemandian').find(b=>b.done);
+  if(bath&&f>.6&&rnd()<.5){ const d=bldDoor(bath); goTo(u,d.x+ri(-8,8),d.y+ri(0,3)); u.task={k:'bath',t:ri(80,140)}; return; }
+  if(!petsOf(u).some(id=>U(id)&&U(id).mk==='neko')&&rnd()<.05) hvNeko(u);
+  const gb=townBuildings(t,'guild').find(b=>b.done); const d=gb?bldDoor(gb):{x:(t.cx+1)*TS,y:(t.cy+2)*TS};
+  if(rnd()<.3){ const a=rnd()*Math.PI*2, r=(t.R+4+rnd()*10)*TS; goTo(u,(t.cx+1)*TS+Math.cos(a)*r,(t.cy+1)*TS+Math.sin(a)*r); u.task={k:'patrol',t:ri(80,140)}; return; }
+  goTo(u,d.x+ri(-14,14),d.y+ri(0,8)); u.task={k:'idle',t:ri(60,120)};
+}
+function courierTask(u,t){
+  const f=dayFrac();
+  const bath=townBuildings(t,'pemandian').find(b=>b.done);
+  if(bath&&f>.62&&rnd()<.4){ const d=bldDoor(bath); goTo(u,d.x+ri(-8,8),d.y+ri(0,3)); u.task={k:'bath',t:ri(80,140)}; return; }
+  const dest=G.towns.filter(o=>!o.hunter&&K(o.kingdom)?.alive).sort((a,b)=>dist(a.cx,a.cy,t.cx,t.cy)-dist(b.cx,b.cy,t.cx,t.cy)).slice(0,4);
+  if(dest.length&&rnd()<.55){ const o=pick(dest); const mk=townBuildings(o,'pasar').find(b=>b.done); const d=mk?bldDoor(mk):{x:(o.cx+1)*TS,y:(o.cy+2)*TS}; goTo(u,d.x+ri(-8,8),d.y+ri(0,4)); u.task={k:'courier',phase:'go',to:o.id,t:0}; return; }
+  if(t.pen&&G.step-(t.penCare||0)>DAY*.8&&herdTask(u,t)) return;
+  const pen=t.pen; const tx=pen?(pen.x+pen.w/2)*TS:(t.cx+1)*TS, ty=pen?(pen.y+pen.h)*TS:(t.cy+3)*TS;
+  goTo(u,tx+ri(-12,12),ty+ri(0,6)); u.task={k:'idle',t:ri(60,120)};
+}
+function courierStep(u,k){
+  const t=hvTown(); const o=TN(k.to);
+  if(!t||!o){ u.task=null; return; }
+  if(k.phase==='go'){ if(u.path.length) return; if(++k.t<25) return;
+    const kd=K(o.kingdom); const buy=Math.min(60,o.stock.food*.1); o.stock.food-=buy; k.food=buy; const pay=buy*.8+10; hvFund(-pay); if(kd) kd.treasury+=pay; t.stock.goods>2&&(t.stock.goods-=2,o.stock.goods+=2);
+    if(rnd()<.18) hvSellEgg(u,o);
+    const d=bldDoor(townBuildings(t,'guild').find(b=>b.done)||townBuildings(t,'lisensi')[0]||{x:t.cx,y:t.cy,w:2,h:2}); goTo(u,d.x+ri(-10,10),d.y+ri(2,6)); k.phase='back'; return; }
+  if(k.phase==='back'){ if(u.path.length) return; t.stock.food+=k.food||0; u.gold+=6; gainXp(u,2); u.flags.trips=(u.flags.trips||0)+1; u.task=null; }
+}
+function hvSellEgg(u,o){
+  const buyers=G.units.filter(v=>!v.dead&&v.town===o.id&&isAdult(v)&&v.gold>=180&&!isHV(v)&&(tamerInfo(v)?petsOf(v).length<tamerInfo(v).slots:(v.royal||v.kelas==='atas')&&!petsOf(v).length)).sort((a,b)=>b.gold-a.gold);
+  const b=buyers[0]; if(!b) return;
+  const kind=pick(EGG_KINDS); const price=Math.round(160+RANK_ORDER.indexOf(MON[kind].rank)*45);
+  if(b.gold<price) return;
+  b.gold-=price; u.gold+=price*.6; hvFund(price*.4); G.hv.eggs++;
+  const m=spawnMonster(kind,b.x+8,b.y,null); m.tamer=b.id; m.petName=pick(PET_NAMES); m.name=`${m.petName} si ${MON[kind].n}`; m.maxHp=Math.round(m.maxHp*.6); m.hp=m.maxHp; m.atk*=.6; m.nest=null; m.flags={}; b.pets=petsOf(b).concat(m.id);
+  hist(b,`membeli telur ${MON[kind].n} dari Tamer ${u.name}`);
+  log(`${fullName(b)} membeli telur ${MON[kind].n} seharga ${price} emas dari ${u.name}, Tamer Hunter Village. Telur itu menetas menjadi ${m.petName}.`,'life',{x:b.x,y:b.y});
+}
+function bathStep(u,k){
+  if(G.step%50===0){ FX_QUEUE.push({k:'say',x:u.x,y:u.y-22,t:24,s:'♨'}); const others=near(u.x,u.y,30,v=>v!==u&&v.task&&v.task.k==='bath'); for(const v of others){ const r=relOf(u,v.id); r.f=Math.min(100,r.f+1); } }
+  if(--k.t<=0){ u.happy=Math.min(100,(u.happy||60)+6); u.hp=Math.min(u.maxHp,u.hp+u.maxHp*.2); u.task=null; }
+}
+function hvDaily(){
+  const hv=G.hv; if(!hv||hv.state!=='founded') return;
+  const t=hvTown(), k=hvKing(); if(!t||!k||!k.alive) return;
+  k.tax=0;
+  hvQuestsDaily(t); hvFormGroups(t); hvCraftDaily(t); hvLicenseDaily(t);
+  const hunters=G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='hunter').length;
+  t.stock.food+=hunters*.4;
+  hvFund(hunters*1.5);
+}
+
+/* ---------- bisikan ganti nama ---------- */
+function renameWhisper(u,target,name){
+  name=String(name||'').replace(/[<>]/g,'').trim().slice(0,28); if(!name) return {ok:false,line:'…',note:'Nama kosong.'};
+  let p=.85+(has(u,'Religius')?.1:0)-(has(u,'Sombong')?.25:0)-(target==='diri'&&has(u,'Setia Abadi')?.1:0)+(u.faithVoice||0)*.03; if(target==='kerajaan') p-=.15;
+  if(rnd()>p) return {ok:false,line:sayT(u,'no'),note:`${u.name} menolak mengganti nama.`};
+  if(target==='diri'){ const old=u.name; u.name=name; hist(u,`mengganti nama dari ${old} menjadi ${name} setelah sebuah mimpi`); log(`${old} ${u.marga} terbangun dan bersikeras dipanggil "${name}" mulai hari ini.`,'life',{x:u.x,y:u.y}); return {ok:true,line:sayT(u,'yes'),note:`Mulai sekarang ia bernama ${name}.`}; }
+  if(target==='party'){ const pt=partyOf(u); if(!pt||pt.leader!==u.id) return {ok:false,line:'…',note:'Ia bukan ketua party.'}; const old=pt.name; pt.name=name; plog(pt,`Nama party diganti dari ${old} menjadi ${name}.`); return {ok:true,line:sayT(u,'yes'),note:`Party ${old} kini bernama ${name}.`}; }
+  if(target==='kerajaan'){ const k=K(u.kingdom); if(!k||k.king!==u.id) return {ok:false,line:'…',note:'Ia bukan penguasa.'}; const old=k.name; k.name=name; log(`Atas titah ${fullName(u)}, ${old} kini bernama ${name}.`,'god',{x:u.x,y:u.y}); return {ok:true,line:sayT(u,'yes'),note:`${old} kini bernama ${name}.`}; }
+  if(target==='kota'){ const k=K(u.kingdom), t=TN(u.town); if(!k||k.king!==u.id||!t) return {ok:false,line:'…',note:'Ia bukan penguasa.'}; const old=t.name; t.name=name; log(`${fullName(u)} mengganti nama kota ${old} menjadi ${name}.`,'god',{x:u.x,y:u.y}); return {ok:true,line:sayT(u,'yes'),note:`Kota ${old} kini bernama ${name}.`}; }
+  if(target==='neko'||target==='pet'){ const m=petsOf(u).map(U).find(Boolean); if(!m) return {ok:false,line:'…',note:'Ia tidak punya partner.'}; const old=m.petName; m.petName=name; m.name=`${name} si ${MON[m.mk].n}`; return {ok:true,line:sayT(u,'yes'),note:`${old} kini dipanggil ${name}.`}; }
+  return {ok:false,line:'…',note:''};
+}
+
+function nekoCarry(m,o){
+  if(o.downed.carrier&&o.downed.carrier!==m.id) return false;
+  const t=TN(o.town); if(!t) return false;
+  if(!o.downed.carrier){ o.downed.carrier=m.id; o.downed.until=Math.max(o.downed.until,G.step+DAY); FX_QUEUE.push({k:'say',x:m.x,y:m.y-18,t:50,s:'Nyaa!'}); }
+  m.task={k:'rescue'}; o.inside=false;
+  const b=townBuildings(t,'klinik').find(x=>x.done)||townBuildings(t,'guild').find(x=>x.done)||townBuildings(t,'lisensi')[0];
+  const d=b?bldDoor(b):{x:(t.cx+1)*TS,y:(t.cy+2)*TS};
+  if(dist(m.x,m.y,d.x,d.y)<16){ o.downed=null; o.hp=Math.max(1,Math.round(o.maxHp*.35)); o.task=null; m.task=null; hist(o,`diseret pulang oleh ${m.petName} si Neko`);
+    if(rnd()<.5) log(`${m.petName} si Neko menyeret ${o.name} yang pingsan pulang ke ${t.name} dengan gerobak kecilnya. Nyawanya selamat.`,'life',{x:m.x,y:m.y}); return true; }
+  if(!m.path.length||G.step%20===0) m.path=[{x:d.x,y:d.y}];
+  followPath(m); return true;
+}
+
 /* ================= SPRITE PIKSEL ================= */
 
 const SPR_EXTRA={
@@ -4096,6 +4564,8 @@ const JOBDEF={
 
   warga:{},
   isekai:{cloth:'#2a3550',pants:'#2a2a33'},
+  hunterHV:{cloth:'#6a4a32',armor:1,trim:'#c8a050',pants:'#3a2a1a',tool:'greatsword',cape:'#7a3a2a',hat:'feathercap'},
+  tamerHV:{cloth:'#3a7a6a',pants:'#4a3a2a',tool:'whip',hat:'goggles',trim:'#e8c060',back:'satchel'},
   enchanter:{cloth:'#5a3a8a',robe:1,trim:'#9fe0ff',hat:'circlet',tool:'staff',gem:'#9fe0ff'},
   highEnchanter:{cloth:'#2a2a5a',robe:1,trim:'#ffd36a',hat:'circletG',tool:'staffGold',gem:'#9fe0ff',cape:'#5a2a8a'},
   summoner:{cloth:'#1f4a5a',robe:1,trim:'#7fffd0',hat:'wizard',tool:'staffLeaf',gem:'#7fffd0',cape:'#163a4a'},
@@ -4584,6 +5054,7 @@ function animalSprite(kind,f){
 const WATER_LINE='#5aa0d8', FOAM='#d8f0ff';
 function drawExtraMon(P,m,f){
   const k=m.k, c=m.c, eye=m.eye||'#ffd040';
+  if(drawExtraMon8(P,m,f)!==false) return;
   if(k==='dinoV'||k==='dinoT') return drawDino(P,c,f,eye,k==='dinoV');
   if(k==='unicorn'||k==='pegasus'){ drawHorse(P,c,m.mane||'#f0e8ff',f,null); if(k==='unicorn'){ P(9,-20,1,2,'#ffe08a'); P(10,-22,1,2,'#fff2c0'); P(11,-23,1,1,'#ffffff'); } if(k==='pegasus'||m.wing) drawWings(P,'#f4f0ff',f,-3,-14); return; }
   if(['phoenix','thunderbird','harpy','cockatrice'].includes(k)) return drawBird(P,c,f,k,eye);
@@ -4737,6 +5208,93 @@ function drawSalamander(P,c,f){
   P(-4,-6,1,1,'#ffd040'); P(0,-6,1,1,'#ffd040');
   P(-2,-8-b,2,2,'#ff8a2a'); P(-5,-7+b,1,2,'#ffb040'); P(2,-8,1,2,'#ff6a1a'); P(-11,-5-b,1,2,'#ff6a1a');
 }
+/* ---------- monster batch 8 ---------- */
+function drawExtraMon8(P,m,f){
+  const k=m.k, c=m.c, eye=m.eye||'#ffd040';
+  if(k==='raptor'||k==='raptorA') return drawRaptor(P,c,f,eye,k==='raptorA');
+  if(k==='dragonW') return drawDragonW(P,c,f,eye,m.job||'#ffb040');
+  if(k==='nulleye') return drawNulleye(P,c,f);
+  if(k==='tyrvern') return drawTyrvern(P,c,f,eye);
+  if(k==='kong') return drawKong(P,c,f,eye);
+  if(k==='dodo') return drawDodo(P,c,f);
+  if(k==='batroww') return drawBatroww(P,c,f,eye);
+  if(k==='neko') return drawNeko(P,c,f,m.job||'#c8a050');
+  return false;
+}
+function drawRaptor(P,c,f,eye,alpha){
+  const dk=shade(c,-.35), lt=shade(c,.25), b=f===1||f===3?1:0, la=f===1?-1:f===3?1:0;
+  P(-8,0,16,1,'rgba(0,0,0,.22)');
+  P(-2+la,-5,2,5,dk); P(1-la,-5,2,5,c); P(-3+la,-1,3,1,dk); P(1-la,-1,3,1,dk);
+  P(-5,-11+b,9,6,c); P(-4,-6+b,7,1,lt); for(let x=-4;x<3;x+=2) P(x,-11+b,1,1,dk);
+  P(-10,-10+b,5,2,c); P(-13,-9+b,3,1,dk);
+  P(3,-15+b,3,5,c); P(4,-17+b,7,3,c); P(8,-15+b,3,1,dk); P(8,-15+b,1,1,'#f4f0e0'); P(7,-16+b,1,1,eye);
+  P(4,-10+b,2,1,dk);
+  if(alpha){ P(3,-19+b,1,2,'#e04a3a'); P(5,-20+b,1,3,'#e04a3a'); P(7,-19+b,1,2,'#e04a3a'); P(-3,-12+b,5,1,'#e04a3a'); }
+}
+function drawDragonW(P,c,f,eye,glow){
+  drawEarthDragon(P,c,f,eye);
+  const w=shade(c,-.15), dk=shade(c,-.4);
+  if(f%2===0){ P(-8,-31,12,2,w); P(-10,-29,16,3,w); P(-6,-26,10,6,w); for(let x=-9;x<5;x+=3) P(x,-28,1,7,dk); }
+  else { P(-12,-21,18,3,w); P(-14,-18,8,2,w); for(let x=-11;x<5;x+=3) P(x,-20,1,4,dk); }
+  P(15,-13,1,1,glow); if(f%2) P(16,-12,2,1,glow);
+}
+function drawNulleye(P,c,f){
+  const dk=shade(c,-.25), lt=shade(c,.15), b=f===1||f===3?1:0;
+  P(-10,0,20,1,'rgba(0,0,0,.25)');
+  legsQuad(P,[-6,-4,3,5],-4,4,dk,f,'#c8c0c8');
+  P(-8,-11+b,15,7,c); P(-7,-5+b,13,1,lt); P(-7,-11+b,13,1,dk);
+  P(-12,-9+b,4,3,c); P(-14,-8+b,2,2,c);
+  P(6,-14+b,3,6,c); P(7,-16+b,6,4,c); P(11,-13+b,3,2,'#e88a9a'); P(12,-12+b,1,1,'#fff');
+  for(let x=-6;x<6;x+=3) P(x,-8+b,1,1,shade(c,-.1));
+  if(f%2){ P(-4,-13,1,1,'#bfe0ff'); P(2,-14,1,1,'#bfe0ff'); P(9,-18,1,1,'#bfe0ff'); }
+}
+function drawTyrvern(P,c,f,eye){
+  const dk=shade(c,-.35), st='#2a5a8a', b=f===1||f===3?1:0;
+  P(-13,0,26,1,'rgba(0,0,0,.28)');
+  legsQuad(P,[-8,-6,4,6],-6,6,dk,f,'#2a2018');
+  P(-10,-15+b,19,9,c); P(-10,-15+b,19,1,dk);
+  for(let x=-9;x<8;x+=3) P(x,-14+b,1,8,st);
+  P(-14,-13+b,5,3,c); P(-16,-12+b,2,2,st);
+  P(7,-18+b,8,8,c); P(13,-14+b,3,3,dk); P(13,-12+b,1,1,'#f4f0e0'); P(15,-12+b,1,1,'#f4f0e0'); P(10,-16+b,1,1,eye);
+  if(f===2){ P(12,-11,4,2,'#5a1a1a'); }
+  if(f%2===0){ P(-6,-24,10,2,shade(c,-.1)); P(-8,-22,12,3,shade(c,-.1)); for(let x=-7;x<4;x+=3) P(x,-22,1,5,st); }
+  else { P(-10,-16,14,2,shade(c,-.1)); }
+}
+function drawKong(P,c,f,eye){
+  const dk=shade(c,-.3), skin='#6a4a3a', b=f%2, la=f===1?-1:f===3?1:0;
+  P(-10,0,20,1,'rgba(0,0,0,.28)');
+  P(-6+la,-6,4,6,c); P(2-la,-6,4,6,c); P(-7+la,-1,5,1,dk); P(2-la,-1,5,1,dk);
+  P(-9,-21,18,15,c); P(-8,-21,16,1,shade(c,.2)); P(-5,-17,10,8,skin);
+  P(-13,-19+b,4,15,c); P(9,-19-b,4,15,c); P(-13,-5+b,4,3,skin); P(9,-5-b,4,3,skin);
+  P(-5,-28,10,8,c); P(-3,-25,6,4,skin); P(-2,-24,1,1,eye); P(1,-24,1,1,eye); P(-2,-22,4,1,'#2a1a1a');
+  P(-6,-29,3,2,c); P(3,-29,3,2,c);
+}
+function drawDodo(P,c,f){
+  const b=f%2, la=f===1?-1:f===3?1:0;
+  P(-5,0,10,1,'rgba(0,0,0,.2)');
+  P(-1+la,-3,1,3,'#e8b040'); P(2-la,-3,1,3,'#e8b040');
+  P(-5,-10,10,7,c); P(-4,-4,8,1,shade(c,.2)); P(-7,-9,2,3,'#f4f0e0');
+  P(3,-14+b,4,5,c); P(6,-13+b,4,2,'#e8c060'); P(9,-12+b,1,2,'#c89040'); P(5,-13+b,1,1,'#1a1a1a');
+}
+function drawBatroww(P,c,f,eye){
+  const y=-15+(f===1?-1:f===3?1:0), dk=shade(c,-.3);
+  P(-4,0,8,1,'rgba(0,0,0,.18)');
+  P(-2,y,5,5,c); P(-2,y-2,1,2,c); P(2,y-2,1,2,c); P(-1,y+1,1,1,eye); P(1,y+1,1,1,eye); P(0,y+3,1,1,'#e8dcc8');
+  const fe='#3a3a5a';
+  if(f%2===0){ P(-9,y-3,7,2,fe); P(-11,y-4,3,1,fe); P(3,y-3,7,2,fe); P(9,y-4,3,1,fe); P(-9,y-1,2,2,dk); P(8,y-1,2,2,dk); }
+  else { P(-9,y+2,7,2,fe); P(3,y+2,7,2,fe); P(-10,y+4,2,1,fe); P(9,y+4,2,1,fe); }
+  P(-1,y+5,1,3,'#8a6a3a'); P(-2,y+8,3,1,'#c8c8c8');
+}
+function drawNeko(P,c,f,armor){
+  const b=f%2, la=f===1?-1:f===3?1:0, dk=shade(c,-.3);
+  P(-3,0,6,1,'rgba(0,0,0,.22)');
+  P(-2+la,-3,2,3,dk); P(1-la,-3,2,3,dk);
+  P(-2,-8,5,5,armor); P(-2,-8,5,1,shade(armor,.2));
+  P(-3,-13,7,5,c); P(-3,-15,2,2,c); P(2,-15,2,2,c); P(-2,-14,1,1,'#e88a9a'); P(3,-14,1,1,'#e88a9a');
+  P(-2,-11,1,1,'#2a2a2a'); P(1,-11,1,1,'#2a2a2a'); P(0,-10,1,1,'#e88a9a');
+  P(-5,-7-b,1,3,c); P(-6,-8-b,1,1,c);
+  P(4,-9,1,4,'#c8c8d0'); P(4,-10,1,1,'#e8e8f0');
+}
 
 /* =====================================================================
    RENDER: medan, bangunan, warga, efek
@@ -4768,7 +5326,7 @@ function tintSprite(spr,tint,key){
   R_.bldCache.set(key,c); return c;
 }
 function unitSprite(u,dir,f){
-  if(u.race==='monster'){ const m=MON[u.mk]; return monSprite({k:m.k,c:m.c,race:m.race,job:m.job,king:m.king,eye:m.eye,dir:m.k==='hum'?dir:undefined},f); }
+  if(u.race==='monster'){ const m=MON[u.mk]; return monSprite({k:m.k,c:(u.flags&&u.flags.rage&&m.rageC)||u.monC||m.c,race:m.race,job:m.job,king:m.king,eye:m.eye,dir:m.k==='hum'?dir:undefined},f); }
   const a=u.app, st=stageOf(u), job=jobKeyOf(u);
   if(u.mounted){
     const key='MT|'+u.race+st+job+u.sex+a.skin+a.hair+a.cloth+a.cloth2+a.outfit+a.style+u.mounted.c+f;
@@ -4852,6 +5410,22 @@ function bldSprite(b){
     R(x-3,y-9,6,9,'#3a2e4a'); R(x-2,y-10,4,1,'#3a2e4a'); wins.push([x-3,y-9,6,9]);
     for(let i=0;i<9;i++) R(x-19+i*2,y-15-i,38-i*4,1,i%2?'#e3b75e':'#c89a3a');
     R(x-1,y-27,2,4,'#e3b75e'); R(x-2,y-26,4,1,'#e3b75e'); R(x-2,y-20,4,3,'#8a6a2a'); R(x-1,y-19,2,2,'#d9b45a');
+  } else if(b.type==='pemandian'){
+    const x=W/2, y=base-2;
+    R(x-20,y-12,40,14,'#7a5a3a'); for(let yy=y-12;yy<y+2;yy+=3) R(x-20,yy,40,1,'#5a4026');
+    for(let i=0;i<8;i++) R(x-23+i,y-13-i,46-i*2,1,i%2?'#3a4a6a':'#2e3d5a');
+    R(x-4,y-8,8,10,'#3a2616'); R(x-4,y-8,8,2,'#8a2a2a'); R(x-3,y-7,6,1,'#f0e0c0');
+    R(x+9,y-2,12,5,'#6a5a4a'); R(x+10,y-1,10,3,'#7ab8e0'); R(x+11,y-1,4,1,'#c8e8ff');
+    for(let i=0;i<3;i++){ R(x+11+i*3,y-6-i,1,3,'#e8eef6'); R(x+12+i*3,y-9-i,1,2,'#e8eef6'); }
+    R(x-14,y-9,4,3,'#3a4a6a'); wins.push([x-14,y-9,4,3]);
+  } else if(b.type==='lisensi'){
+    const x=W/2, y=base-2;
+    R(x-28,y-18,56,20,stone); for(let yy=y-18;yy<y+2;yy+=3) for(let xx=x-28+(yy%6?0:3);xx<x+28;xx+=6) R(xx,yy,1,3,shade(stone,-.2));
+    for(let i=0;i<9;i++) R(x-31+i,y-19-i,62-i*2,1,i%2?'#8a3a2a':'#7a2f22'); R(x-31,y-19,62,1,'#4a1a12');
+    R(x-6,y-10,12,12,'#3a2616'); R(x-6,y-10,12,1,'#c8a050');
+    R(x-5,y-30,10,10,'#c8a050'); R(x-4,y-29,8,8,'#6a2a1a'); R(x-3,y-28,1,6,'#e8e8f0'); R(x+2,y-28,1,6,'#e8e8f0'); R(x-2,y-27,4,1,'#e8e8f0'); R(x-1,y-23,2,1,'#e8e8f0');
+    R(x-22,y-14,5,5,'#3a4a6a'); R(x+17,y-14,5,5,'#3a4a6a'); wins.push([x-22,y-14,5,5],[x+17,y-14,5,5]);
+    R(x+24,y-24,1,26,'#4a3020'); R(x+25,y-24,7,5,'#c8a050');
   } else if(b.type==='guild'){
     const x=W/2, y=base-2;
     R(x-20,y-16,40,18,'#8a5a32'); for(let yy=y-16;yy<y+2;yy+=3) R(x-20,yy,40,1,'#6a4224');
@@ -5055,9 +5629,14 @@ function drawWorld(){
       if(u.mounted&&u.mounted.cart){ const cx=Math.round(it.x)+(u.flip?12:-22), cy=Math.round(it.y); g.fillStyle='#7a5032'; g.fillRect(cx,cy-10,12,6); g.fillStyle='#e8dcc0'; g.fillRect(cx+1,cy-15,10,5); g.fillStyle='#d8ccb0'; g.fillRect(cx+1,cy-15,10,1); g.fillStyle='#3a2a1a'; g.fillRect(cx+1,cy-4,3,3); g.fillRect(cx+8,cy-4,3,3); g.fillStyle='#6a4a2a'; g.fillRect(u.flip?cx-4:cx+12,cy-8,4,1); }
       g.save();
       if(u.flip){ g.translate(Math.round(it.x)*2,0); g.scale(-1,1); }
+      if(u.mountMon&&u.race!=='monster'&&!u.inside){ const mm=MON[u.mountMon]; const ms=monSprite({k:mm.k,c:mm.c,race:mm.race,job:mm.job,eye:mm.eye},moving?fr:0); const sc=Math.min(1.25,Math.max(.95,mm.sc||1));
+        if(u.cart){ const cx=Math.round(it.x)+(u.flip?14:-26), cy=Math.round(it.y); g.fillStyle='#6a4a2a'; g.fillRect(cx,cy-10,14,6); g.fillStyle='#c8a060'; g.fillRect(cx+1,cy-15,12,5); g.fillStyle='#e8d0a0'; g.fillRect(cx+1,cy-15,12,1); g.fillStyle='#2a1a10'; g.fillRect(cx+1,cy-4,3,3); g.fillRect(cx+10,cy-4,3,3); }
+        g.save(); if(u.flip){ g.translate(Math.round(it.x)*2,0); g.scale(-1,1); } g.drawImage(ms,Math.round(it.x)-FX*sc,Math.round(it.y)-FY*sc,ms.width*sc,ms.height*sc); g.drawImage(spr,Math.round(it.x)-FX,Math.round(it.y)-FY-9); g.restore(); continue; }
+      if(u.hq&&G.hv){ const gq=G.hv.groups.find(x=>x.id===u.hq); if(gq&&gq.carcass&&gq.leader===u.id){ const cm=MON[gq.carcass.mk]; drawLying(g,monSprite({k:cm.k,c:cm.c,race:cm.race,job:cm.job,eye:cm.eye},0),it.x+(u.flip?14:-14),it.y,u.flip,0); } }
       { const V=u.variant&&VARIANTS[u.variant]; const vs=V&&V.tint?tintSprite(spr,V.tint,'V|'+u.mk+'|'+u.variant+'|'+fr):spr; const sc=(u.race==='monster'&&MON[u.mk]&&MON[u.mk].sc||1)*(V&&V.scale||1);
         if(sc!==1) g.drawImage(vs,Math.round(it.x)-FX*sc,Math.round(it.y)-FY*sc,vs.width*sc,vs.height*sc); else g.drawImage(vs,Math.round(it.x)-FX,Math.round(it.y)-FY); }
       g.restore();
+      if(u.hq){ const qx=Math.round(it.x)-2, qy=Math.round(it.y)-37; g.fillStyle='#f0e0b0'; g.fillRect(qx,qy,5,6); g.fillStyle='#8a5a2a'; g.fillRect(qx,qy,5,1); g.fillRect(qx,qy+5,5,1); g.fillStyle='#c0302a'; g.fillRect(qx+2,qy+1,1,2); g.fillRect(qx+2,qy+4,1,1); }
       if(u.isekai&&fr%3===0){ g.fillStyle='#8ad8ff'; g.fillRect(Math.round(it.x)+5,Math.round(it.y)-29,1,1); }
       if((u.corrupt||0)>=50&&fr%2===0){ g.fillStyle='rgba(150,70,220,.85)'; g.fillRect(Math.round(it.x)-1,Math.round(it.y)-(u.mounted?34:27),2,2); }
       if(u.tamer){ const o=U(u.tamer); const k=o&&K(o.kingdom); g.fillStyle=k?k.color:'#7fc98a'; g.fillRect(Math.round(it.x)-2,Math.round(it.y)-3,4,1); }
@@ -5186,6 +5765,7 @@ function drawLabels(g,z,vis){
     g.fillStyle='#120c0a'; g.beginPath(); g.ellipse(x,y+3,5,5,0,Math.PI,0); g.fill(); g.fillRect(x-5,y+3,10,1);
     g.fillStyle='#e8dcc8'; g.fillRect(x-9,y+5,3,1); g.fillRect(x+6,y+5,2,1); g.fillRect(x+7,y+4,1,1); g.fillStyle='#8a3a2a'; g.fillRect(x+9,y-4,1,7); g.fillRect(x+8,y-5,3,1);
     if(z>=1.4) txt(`${d.name}${d.captives.length?` · ${d.captives.length} tawanan`:''}`,x,y+16,d.captives.length?'#ffb0a0':'#e0c8a0',Math.max(7,10/z)); }
+  if(G.hv&&G.hv.ship){ const s=G.hv.ship, x=Math.round(s.x), y=Math.round(s.y); if(vis(x,y)){ g.fillStyle='#4a2c18'; g.fillRect(x-22,y,44,6); g.fillRect(x-19,y+6,38,3); g.fillStyle='#6a4426'; g.fillRect(x-22,y,44,2); g.fillStyle='#2a1a10'; g.fillRect(x-1,y-30,2,30); g.fillRect(x-14,y-22,1,22); g.fillRect(x+13,y-18,1,18); g.fillStyle='#ece2c8'; g.fillRect(x-10,y-28,20,14); g.fillRect(x-20,y-20,11,10); g.fillRect(x+9,y-16,9,8); g.fillStyle='#8a2a2a'; g.fillRect(x-6,y-24,12,6); g.fillStyle='#e8e8f0'; g.fillRect(x-4,y-23,1,4); g.fillRect(x+3,y-23,1,4); g.fillRect(x-2,y-22,4,1); g.fillStyle='#c8a050'; g.fillRect(x+1,y-34,6,3); g.fillStyle='#e8f4ff'; g.fillRect(x-24,y+8,6,1); g.fillRect(x+18,y+8,6,1); if(z>=1) txt('Kapal Hunter',x,y+18,'#ffd36a',Math.max(7,10/z)); } }
   for(const b of G.boats||[]){ if(!vis(b.x,b.y)) continue; const x=Math.round(b.x), y=Math.round(b.y); g.fillStyle='#6a4426'; g.fillRect(x-5,y,10,2); g.fillRect(x-4,y+2,8,1); g.fillStyle='#8a5a32'; g.fillRect(x-5,y,10,1); g.fillStyle='#e8e0cc'; g.fillRect(x,y-6,1,6); g.fillRect(x+1,y-5,3,4); g.fillStyle='#4a4a5a'; g.fillRect(x-3,y-3,2,3); g.fillStyle='rgba(255,255,255,.35)'; g.fillRect(x-7+(Math.floor(performance.now()/300)%2),y+3,3,1); }
   for(const n of G.nests){ const x=(n.x+.5)*TS, y=(n.y+.5)*TS; if(n.legend){ if(!vis(x,y)) continue; g.fillStyle='#4a4238'; g.fillRect(x-7,y-1,3,5); g.fillRect(x+4,y-1,3,5); g.fillRect(x-1,y-3,2,6); g.fillStyle='#d8b860'; g.fillRect(x-7,y-2,3,1); g.fillRect(x+4,y-2,3,1); g.fillRect(x-1,y-4,2,1); if(Math.floor(performance.now()/600)%2){ g.fillStyle='#ffe9a0'; g.fillRect(x,y-6,1,1); } if(z>=1.1) txt(`★ ${n.name}`,x,y+12,legendAlive(n)?'#ffd36a':'#b8a880',Math.max(7,10/z)); continue; }
     if(!vis(x,y)||z<1.8) continue; g.fillStyle='rgba(60,30,30,.5)'; g.fillRect(x-4,y-1,8,3); g.fillStyle='#e8dcc8'; g.fillRect(x-3,y,2,1); g.fillRect(x+1,y-1,1,2); }
@@ -5221,9 +5801,9 @@ const $=id=>document.getElementById(id);
 const TOOLS=[
   {id:'lihat',g:'◎',n:'Lihat'},{id:'rasuki',g:'⚇',n:'Rasuki'},{id:'warga',g:'☺',n:'Warga Baru'},{id:'suku',g:'❂',n:'Suku Baru'},
   {id:'monster',g:'☠',n:'Monster'},{id:'berkah',g:'✦',n:'Berkah Lv'},{id:'hujan',g:'☂',n:'Hujan'},{id:'petir',g:'ϟ',n:'Petir'},
-  {id:'meteor',g:'☄',n:'Meteor'},{id:'dungeon',g:'◆',n:'Dungeon'},{id:'mimpi',g:'☾',n:'Mimpi'},
+  {id:'meteor',g:'☄',n:'Meteor'},{id:'dungeon',g:'◆',n:'Dungeon'},{id:'mimpi',g:'☾',n:'Mimpi'},{id:'kapal',g:'⚓',n:'Kapal Hunter'},
 ];
-const HINT={lihat:'Ketuk warga, bangunan, atau dungeon.',rasuki:'Ketuk seorang warga untuk merasukinya.',warga:'Pilih ras, lalu ketuk lokasi.',suku:'Pilih ras, lalu ketuk tanah lapang yang jauh dari kota.',monster:'Pilih monster, lalu ketuk lokasi.',berkah:'Ketuk warga untuk menaikkan levelnya.',hujan:'Ketuk dekat kota.',petir:'Ketuk sasaran.',meteor:'Ketuk lokasi jatuh.',dungeon:'Ketuk lokasi pintu dungeon.',mimpi:'Malam hari: ketuk seorang warga untuk masuk ke mimpinya. Orang dunia lain bisa diajak bicara kapan saja.'};
+const HINT={lihat:'Ketuk warga, bangunan, atau dungeon.',rasuki:'Ketuk seorang warga untuk merasukinya.',warga:'Pilih ras, lalu ketuk lokasi.',suku:'Pilih ras, lalu ketuk tanah lapang yang jauh dari kota.',monster:'Pilih monster, lalu ketuk lokasi.',berkah:'Ketuk warga untuk menaikkan levelnya.',hujan:'Ketuk dekat kota.',petir:'Ketuk sasaran.',meteor:'Ketuk lokasi jatuh.',dungeon:'Ketuk lokasi pintu dungeon.',kapal:'Ketuk dekat pantai sebuah kerajaan untuk memanggil kapal para Hunter (fitur opsional, sekali saja).',mimpi:'Malam hari: ketuk seorang warga untuk masuk ke mimpinya. Orang dunia lain bisa diajak bicara kapan saja.'};
 
 let toastT=0;
 function toast(m){ const e=$('toast'); e.textContent=m; e.style.opacity=1; clearTimeout(toastT); toastT=setTimeout(()=>e.style.opacity=0,2600); }
@@ -5276,6 +5856,7 @@ function onTap(wx,wy){
   if(t==='hujan'){ const tw=nearestTownTo(wx,wy,50); if(!tw){ toast('Ketuk dekat kota.'); return; } tw.stock.food+=tw.pop*6+60; FX_QUEUE.push({k:'rain',x:(tw.cx+1)*TS,y:(tw.cy+1)*TS,t:200}); log(`Langit menurunkan hujan berkah di ${tw.name}. Rakyat bertanya-tanya dewa mana yang bermurah hati.`,'god',{x:(tw.cx+1)*TS,y:(tw.cy+1)*TS}); return; }
   if(t==='petir'){ const v=gmLightning(wx,wy); if(v&&UI.sel&&UI.sel.id===v.id) UI.pdirty=true; return; }
   if(t==='meteor'){ meteorAt(wx,wy,'Sang Dewa'); return; }
+  if(t==='kapal'){ const e=summonHunterShip(wx,wy); toast(e||'Kapal Hunter terlihat di cakrawala.'); if(!e){ const s=G.hv.ship; centerOn(s.x,s.y,Math.max(R_.cam.z,2.2)); } setTool('lihat'); return; }
   if(t==='mimpi'){ const s=pickAt(wx,wy); const u=s&&s.type==='unit'?U(s.id):null; if(!u||u.race==='monster'||u.dead){ toast('Ketuk seorang warga.'); return; } const e=openDream(u); if(e) toast(e); return; }
   if(t==='dungeon'){ const tx=Math.floor(wx/TS), ty=Math.floor(wy/TS); if(!isLand(tileAt(tx,ty))){ toast('Pilih daratan.'); return; } if(townOfPx(wx,wy)){ toast('Terlalu dekat dengan kota.'); return; } placeDungeon(false,{x:tx,y:ty}); return; }
 }
@@ -5387,7 +5968,7 @@ function kingdomHtml(){
       return `<h4>Perdagangan</h4><p class="sub" style="margin:0">${st?'Tahun ini':'Tahun lalu'}: ${show.trips} perjalanan kafilah, nilai ${Math.round(show.value)} emas${parts?` · mitra: ${parts}`:''}.</p>`; })()}
     ${(()=>{ const ppl2=ppl.filter(isAdult); const c={atas:0,menengah:0,bawah:0}; for(const u of ppl2) c[u.kelas||'bawah']++; const sc=U(k.scout);
       return `<h4>Masyarakat</h4><p class="sub" style="margin:0">Kalangan atas ${c.atas} · menengah ${c.menengah} · bawah ${c.bawah}${k.zoning?' · <span style="color:#f0a59d">wilayah dibagi per kelas (pajak bawah lebih berat)</span>':''}${sc?`<br>Pencari Bakat: <span class="link" data-uid="${sc.id}">${esc(sc.name)}</span> (IQ ${sc.iq})`:''}</p>`; })()}
-    ${isekaiHtml(k)}${foodHtml(k)}
+    ${hvHtml(k)}${k.hunter?'':isekaiHtml(k)}${foodHtml(k)}
     <h4>Pemukiman</h4>
     ${towns.map(t=>{ const bl=G.blds.filter(b=>b.town===t.id&&b.type!=='tenda'); const done=bl.filter(b=>b.done).length; const site=bl.find(b=>!b.done);
       return `<div class="sub"><span class="link" data-goto="${(t.cx+1)*TS},${(t.cy+1)*TS}">${esc(t.name)}</span> ${t.cap?'(ibu kota)':'(desa)'} · ${t.pop||0} jiwa · ${done}/${bl.length} bangunan · tembok ${t.wall.state==='done'?'berdiri':t.wall.state==='building'?Math.round(t.wall.progress/BLD.tembok.work*100)+'%':'belum'}${site?` · sedang membangun ${BLD[site.type].n} ${Math.round(site.progress/site.work*100)}%`:''}<br>Lumbung: pangan ${Math.round(t.stock.food)} · kayu ${Math.round(t.stock.wood)} · batu ${Math.round(t.stock.stone)} · bijih ${Math.round(t.stock.ore)} · barang ${Math.round(t.stock.goods)}
@@ -5429,7 +6010,7 @@ function renderDetail(b){
     const be=BERKAT[u.b], k=K(u.kingdom), t=TN(u.town), h=B(u.home);
     const st=stageOf(u), age=Math.floor(ageOf(u));
     const stLabel={bayi:'Bayi',anak:'Anak',remaja:'Remaja',dewasa:'Dewasa',tua:'Lansia'}[st];
-    const career={petualang:`Petualang peringkat ${rankOf(u.lvl)}`,penjaga:'Penjaga kerajaan',istana:'Keluarga istana',kerja:ROLE_LABEL[be.role]||'Pekerja'}[u.career]||(canWork(u)?ROLE_LABEL[be.role]:'Belum bekerja');
+    const career={petualang:`Petualang peringkat ${rankOf(u.lvl)}`,penjaga:'Penjaga kerajaan',istana:'Keluarga istana',hunter:'Hunter pemburu monster',kurir:'Tamer pengantar & kurir',guild:'Staf Guild',guru:'Guru Akademi',kerja:ROLE_LABEL[roleOf(u)]||ROLE_LABEL[be.role]||'Pekerja'}[u.career]||(canWork(u)?ROLE_LABEL[roleOf(u)]||ROLE_LABEL[be.role]||'Pekerja':'Belum bekerja');
     const rels=Object.entries(u.rel).filter(([id])=>person(+id)).sort((a,b)=>(b[1].f+b[1].r)-(a[1].f+a[1].r)).slice(0,6);
     const admirers=G.units.filter(v=>!v.dead&&v!==u&&v.rel[u.id]&&v.rel[u.id].r>=20&&v.sex!==u.sex).sort((a,b)=>b.rel[u.id].r-a.rel[u.id].r).slice(0,4);
     const dream=IMPIAN.find(d=>d.id===u.dream);
@@ -5500,7 +6081,7 @@ function renderDetail(b){
   if(s.type==='town'){ const t=TN(s.id); if(!t){ b.innerHTML=''; return; } const k=K(t.kingdom); const [wl,wc]=welfareLabel(t.welfare);
     b.innerHTML=`<div class="card"><h3><span class="dot" style="background:${k?k.color:'#888'}"></span>${esc(t.name)}</h3><dl class="kv"><dt>Kerajaan</dt><dd>${k?esc(k.name):'-'}</dd><dt>Penduduk</dt><dd>${t.pop||0}</dd><dt>Kesejahteraan</dt><dd style="color:${wc}">${wl}</dd><dt>Lumbung</dt><dd>pangan ${Math.round(t.stock.food)}, kayu ${Math.round(t.stock.wood)}, batu ${Math.round(t.stock.stone)}</dd></dl></div>`; return; }
   if(s.type==='dun'){ const d=G.dungeons.find(x=>x.id===s.id); if(!d){ b.innerHTML=''; return; }
-    b.innerHTML=`<div class="card"><h3>${esc(d.name)}</h3><dl class="kv"><dt>Kedalaman</dt><dd>${d.maxFloor} lantai (rahasia bagi warga)</dd><dt>Rekor terdalam</dt><dd>Lantai ${d.deep}</dd><dt>Penghuni dasar</dt><dd>${d.demon?'<span style="color:#ff9aa8">Raja Iblis</span>':'Belum ada Raja Iblis'}</dd><dt>Muncul</dt><dd>Tahun ${d.born}</dd></dl><div class="row"><button class="btn" data-dact="demon">${d.demon?'Usir Raja Iblis':'Tanam Raja Iblis'}</button>${d.demon?'<button class="btn warn" data-dact="wb">Lepas pasukan iblis</button>':''}</div><p class="sub" style="margin:0">Dungeon dengan Raja Iblis di dunia: ${G.demonCount}/5. Bila lima, anak berikutnya yang lahir akan membawa berkat Pahlawan.</p></div>`+dungeonMgmtHtml(d); return; }
+    b.innerHTML=`<div class="card"><h3>${esc(d.name)}</h3><dl class="kv"><dt>Kedalaman</dt><dd>${d.maxFloor} lantai (rahasia bagi warga)</dd><dt>Rekor terdalam</dt><dd>Lantai ${d.deep}</dd><dt>Penghuni dasar</dt><dd>${d.demon?'<span style="color:#ff9aa8">Raja Iblis</span>':'Belum ada Raja Iblis'}</dd><dt>Muncul</dt><dd>Tahun ${d.born}</dd></dl><div class="row"><button class="btn" data-dact="demon">${d.demon?'Usir Raja Iblis':'Tanam Raja Iblis'}</button>${d.demon?'<button class="btn warn" data-dact="wb">Lepas pasukan iblis</button>':''}</div><p class="sub" style="margin:0">Dungeon dengan Raja Iblis di dunia: ${G.demonCount}/5. Bila lima, anak berikutnya yang lahir akan membawa berkat Pahlawan.</p></div>`+dungeonInsideHtml(d)+dungeonMgmtHtml(d); return; }
 }
 function drawPortrait(u){
   const c=$('portrait'); if(!c) return; const g=c.getContext('2d'); g.imageSmoothingEnabled=false; g.clearRect(0,0,c.width,c.height);
@@ -5544,7 +6125,7 @@ function loadGame(){
     o.uMap=new Map(); for(const u of o.units) o.uMap.set(u.id,u);
     o.bMap=new Map(); for(const b of o.blds) o.bMap.set(b.id,b);
     o.dirty={terrain:true,chron:true}; o.alert=null;
-    G=o; if(!G.veins) placeVeins(34); if(!G.dens){ G.dens=[]; placeDen('goblin'); placeDen('orc'); } worldUpgrade(); R_.lastTerrain=0; R_.penAnimals={}; UI.sel=null; UI.follow=false; renderPossess(); renderTerrain(); fitCamera(); UI.pdirty=true;
+    G=o; if(!G.veins) placeVeins(34); if(!G.dens){ G.dens=[]; placeDen('goblin'); placeDen('orc'); } worldUpgrade(); worldUpgrade8(); R_.lastTerrain=0; R_.penAnimals={}; UI.sel=null; UI.follow=false; renderPossess(); renderTerrain(); fitCamera(); UI.pdirty=true;
     toast(`Dunia tahun ${yearInt()} dimuat.`); return true;
   }catch(e){ toast('Data simpanan rusak dan tidak bisa dimuat.'); return false; }
 }
@@ -5574,6 +6155,7 @@ function frame(t){
   pullFx();
   if(UI.follow&&UI.sel&&UI.sel.type==='unit'){ const u=U(UI.sel.id); if(u){ const r=R_.cv.getBoundingClientRect(); const tx=u.x-r.width/2/R_.cam.z, ty=u.y-r.height/2/R_.cam.z; R_.cam.x+=(tx-R_.cam.x)*.15; R_.cam.y+=(ty-R_.cam.y)*.15; } else UI.follow=false; }
   drawWorld();
+  if(UI.dv) drawDV(); else dvAutoCheck();
   statT+=dt; if(statT>400){ statT=0; stats(); if(G.dirty.chron&&UI.tab==='kronik'){ G.dirty.chron=false; UI.pdirty=true; } if(['detail','dewa','kerajaan','party','arsip'].includes(UI.tab)) UI.pdirty=true; renderPanel(false); possT++; if(G.possess&&possT%2===0) renderPossess(); }
   autoT+=dt; if(autoT>180000){ autoT=0; if(G.savedOnce) saveGame(true); }
   requestAnimationFrame(frame);
@@ -5586,11 +6168,14 @@ function openSetup(){
   const draw=()=>{ box.innerHTML=`<div class="card"><h3>Ciptakan Dunia Baru</h3><p class="sub" style="margin:0">Pilih ras yang mendirikan kerajaan di tahun 0. Mereka akan muncul berjauhan. Dunia lama hilang kecuali sudah disimpan.</p>
     <div class="row">${PLAY_RACES.map(r=>`<button class="chipbtn" data-sr="${r}" aria-pressed="${UI.races.includes(r)}">${RACE[r].nama}</button>`).join('')}</div>
     <p class="sub" style="margin:0">${UI.races.length} kerajaan awal.</p>
+    <h4>Jumlah jiwa awal</h4><div class="row">${[[0,'Sedikit (±120)'],[300,'300'],[600,'600'],[1000,'1000']].map(([v,n])=>`<button class="chipbtn" data-sp="${v}" aria-pressed="${(UI.startPop||0)===v}">${n}</button>`).join('')}</div>
+    ${(UI.startPop||0)>=600?'<p class="sub" style="margin:0;color:#f0c890">Dunia ramai butuh tenaga lebih. Di HP, kecepatan 30× dan 80× bisa terasa berat.</p>':''}
     <div class="row"><button class="btn" data-sgo="1" ${UI.races.length?'':'disabled'}>Ciptakan</button><button class="btn warn" data-sx="1">Batal</button></div></div>`; };
   draw();
   box.onclick=e=>{ const r=e.target.closest('[data-sr]'); if(r){ const v=r.dataset.sr; UI.races=UI.races.includes(v)?UI.races.filter(x=>x!==v):UI.races.concat(v); draw(); return; }
+    const sp=e.target.closest('[data-sp]'); if(sp){ UI.startPop=+sp.dataset.sp; draw(); return; }
     if(e.target.closest('[data-sx]')){ box.hidden=true; return; }
-    if(e.target.closest('[data-sgo]')&&UI.races.length){ box.hidden=true; newWorld(undefined,UI.races.slice()); R_.penAnimals={}; UI.sel=null; renderPossess(); renderTerrain(); fitCamera(); UI.pdirty=true; toast(`Dunia baru tercipta dengan ${UI.races.length} kerajaan. Tahun 0.`); } };
+    if(e.target.closest('[data-sgo]')&&UI.races.length){ box.hidden=true; newWorld(undefined,UI.races.slice(),UI.startPop||0); R_.penAnimals={}; UI.sel=null; renderPossess(); renderTerrain(); fitCamera(); UI.pdirty=true; toast(`Dunia baru tercipta dengan ${UI.races.length} kerajaan. Tahun 0.`); } };
 }
 
 /* ---------- init ---------- */
@@ -5725,7 +6310,9 @@ function renderDream(){
   const can=c=>left>0?'':'disabled';
   const ad=isAdult(u);
   let sub='';
-  if(D.mode){ const cs=dCand(u,D.mode);
+  if(D.mode==='rename'){ const opts=[['diri','Namanya sendiri']]; const pt=partyOf(u); if(pt&&pt.leader===u.id&&!pt.solo) opts.push(['party','Nama party']); if(k&&k.king===u.id){ opts.push(['kerajaan','Nama kerajaan']); opts.push(['kota','Nama kota']); } if(petsOf(u).length) opts.push(['pet',isHV(u)?'Nama Neko':'Nama peliharaan']); D.rnT=D.rnT&&opts.some(o=>o[0]===D.rnT)?D.rnT:'diri';
+    sub=`<h4>Bisikkan nama baru</h4><div class="row">${opts.map(([v,n])=>`<button class="chipbtn" data-rn="${v}" aria-pressed="${D.rnT===v}">${n}</button>`).join('')}</div><div class="row"><input id="rnInput" maxlength="28" placeholder="Nama baru" style="flex:1;min-width:140px;background:var(--vault-2);border:1px solid var(--line);border-radius:7px;padding:5px 9px;color:var(--parch)"><button class="btn" data-dd="rngo">Bisikkan</button><button class="btn warn" data-dd="back">Kembali</button></div>`; }
+  else if(D.mode){ const cs=dCand(u,D.mode);
     sub=`<h4>${MODE_T[D.mode]}</h4><div class="row">${cs.length?cs.map(c=>`<button class="chipbtn" data-dc="${c.id}" aria-pressed="${D.sel.includes(String(c.id))}">${esc(c.l)}</button>`).join(''):'<span class="sub">Tidak ada pilihan yang cocok.</span>'}</div><div class="row">${D.mode==='party'?`<button class="btn" data-dd="go" ${D.sel.length?'':'disabled'}>Perintahkan</button>`:''}<button class="btn warn" data-dd="back">Kembali</button></div>`; }
   box.innerHTML=`<div class="dbox" role="dialog" aria-label="Mimpi">
   <div class="dhead"><canvas id="dportrait" class="portrait" width="72" height="90"></canvas><div><div style="font-family:var(--display);font-size:17px;color:var(--parch)">${esc(fullName(u))}</div>
@@ -5740,7 +6327,7 @@ function renderDream(){
    ${tamerInfo(u)&&ad?`<button class="btn" data-dm="tame" ${can()}>Jinakkan beast</button>`:''}
    ${ad&&!u.spouse?`<button class="btn" data-dm="marry" ${can()}>Saran menikah</button>`:''}
    ${ad?`<button class="btn" data-dm="job" ${can()}>Saran pekerjaan</button><button class="btn" data-dx="solo" ${can()}>${wantsSolo(u)?'Ajak bergabung party':'Bertualang sendirian'}</button>`:''}
-   <button class="btn" data-dx="good" ${can()}>Nasihat baik</button>${ad&&k&&!u.royal&&k.king!==u.id?`<button class="btn" data-dx="secede" ${can()}>Pimpin rakyat dirikan kerajaan</button>`:''}</div>
+   <button class="btn" data-dx="good" ${can()}>Nasihat baik</button><button class="btn" data-dm="rename" ${can()}>Bisikkan nama baru</button>${ad&&k&&!u.royal&&k.king!==u.id?`<button class="btn" data-dx="secede" ${can()}>Pimpin rakyat dirikan kerajaan</button>`:''}</div>
   <h4>Bisikan gelap</h4><div class="row">
    ${ad?`<button class="btn dark" data-dm="affair" ${can()}>Suruh selingkuh</button>`:''}
    <button class="btn dark" data-dx="bad" ${can()}>Pengaruh buruk</button>
@@ -5780,6 +6367,9 @@ function dreamClick(e){
   if(b.dataset.dx){ dCommand(u,b.dataset.dx,undefined,b.dataset.dx==='solo'?(wantsSolo(u)?'join':'solo'):undefined); return; }
   if(b.dataset.dd==='end'){ closeDream(); return; }
   if(b.dataset.dd==='back'){ D.mode=null; D.sel=[]; renderDream(); return; }
+  if(b.dataset.rn){ const v=$('rnInput')?$('rnInput').value:''; D.rnT=b.dataset.rn; renderDream(); if($('rnInput')) $('rnInput').value=v; return; }
+  if(b.dataset.dd==='rngo'){ const nm=($('rnInput')?$('rnInput').value:'').trim(); if(!nm){ toast('Tulis nama barunya dulu.'); return; } if(D.cmds<=0) return; const lab={diri:'dirimu',party:'party-mu',kerajaan:'kerajaanmu',kota:'kotamu',pet:'partnermu'}[D.rnT||'diri'];
+    dSay('me',`Mulai hari ini, ${lab} bernama "${nm}".`); const r=renameWhisper(u,D.rnT||'diri',nm); if(r.line) dSay('npc',r.line); if(r.note) dSay('note',r.note); D.cmds--; D.mode=null; renderDream(); UI.pdirty=true; return; }
   if(b.dataset.dc!=null){ const id=b.dataset.dc;
     if(D.mode==='party'){ D.sel=D.sel.includes(id)?D.sel.filter(x=>x!==id):D.sel.concat(id).slice(-4); renderDream(); return; }
     const lab=dCand(u,D.mode).find(c=>String(c.id)===id);
@@ -5793,10 +6383,10 @@ function dreamClick(e){
 const PSTATE={rest:'Beristirahat di kota',go:'Dalam perjalanan',hunt:'Berburu',in:'Di dalam dungeon',back:'Pulang'};
 function partyTabHtml(){
   const ps=G.parties.filter(p=>p.members.some(id=>U(id)));
-  if(!ps.length) return '<p class="empty">Belum ada party. Petualang membentuk party setelah Balai Guild berdiri.</p>';
+  if(!ps.length) return hvGroupsHtml()+'<p class="empty">Belum ada party. Petualang membentuk party setelah Balai Guild berdiri.</p>';
   const tgtName=p=>{ if(p.state==='rest') return ''; const t=p.plan==='dungeon'?G.dungeons.find(d=>d.id===p.target):p.plan==='den'?(G.dens||[]).find(d=>d.id===p.target):G.nests.find(n=>n.id===p.target); return t?` · ${esc(t.name)}`:''; };
   ps.sort((a,b)=>(b.state!=='rest')-(a.state!=='rest')||b.record.kills-a.record.kills);
-  return `<p class="sub" style="margin:0 0 8px">${ps.length} party · maksimal 5 anggota · kepercayaan naik tiap petualangan bersama</p><div class="list">${ps.map(p=>{ const t=TN(p.town); const mem=p.members.map(U).filter(Boolean); const L=U(p.leader);
+  return hvGroupsHtml()+`<p class="sub" style="margin:0 0 8px">${ps.length} party · maksimal 5 anggota · kepercayaan naik tiap petualangan bersama</p><div class="list">${ps.map(p=>{ const t=TN(p.town); const mem=p.members.map(U).filter(Boolean); const L=U(p.leader);
     return `<div class="card"><h3>${esc(p.name)} <small class="sub">${p.solo?'petualang solo · ':''}${t?esc(t.name):''}</small></h3>
     <div class="sub" style="color:${p.state==='rest'?'var(--mute)':'var(--dun)'}">${PSTATE[p.state]||p.state}${tgtName(p)}${p.orders?' · mendapat petunjuk dari mimpi':''}</div>
     <div class="list" style="gap:3px">${mem.map(m=>{ const tr=Math.round(p.trust[m.id]||0); return `<div class="row" style="justify-content:space-between;flex-wrap:nowrap"><span>${m.id===p.leader?'♛ ':''}${personLink(m.id)} <small class="sub">Lv ${m.lvl}${m.revealed?' · '+esc(BERKAT[m.b].n):''}${m.isekai?' · dunia lain':''}${petsOf(m).length?' · '+petsOf(m).length+' beast':''}${p.out&&!p.out.includes(m.id)&&p.state!=='rest'?' · tinggal':''}</small></span><span style="display:flex;align-items:center;gap:4px;flex:0 0 auto"><small class="sub">percaya</small><span class="bar" style="width:46px"><i style="width:${tr}%;background:${tr>=60?'#7fc98a':tr<30?'#e0645a':'#e3b75e'}"></i></span></span></div>`; }).join('')}</div>
@@ -5843,7 +6433,7 @@ function unitExtraHtml(u){
   const p=partyOf(u); if(p) h+=`<dt>Party</dt><dd><span class="link" data-ptab="1">${esc(p.name)}</span>${p.leader===u.id?' · pemimpin':''} · percaya ${Math.round(p.trust[u.id]||0)}</dd>`;
   if(u.dungeonLord){ const d=G.dungeons.find(x=>x.id===u.dungeonLord); h+=`<dt>Takhta</dt><dd style="color:#ff9aa8">Raja Iblis ${d?esc(d.name):''}</dd>`; }
   if(u.jobOverride) h+=`<dt>Pekerjaan pilihan</dt><dd>${esc((JOB_OPTS.find(j=>j[0]===u.jobOverride)||[0,u.jobOverride])[1])}</dd>`;
-  h+=unitExtra6(u);
+  h+=unitExtra6(u)+unitExtra8(u);
   if(u.faithVoice) h+=`<dt>Mendengar suaramu</dt><dd>${u.faithVoice} kali</dd>`;
   if(u.flags.murder&&U(u.flags.murder.target)) h+=`<dt>Niat gelap</dt><dd style="color:#f0a0b0">ingin menyingkirkan ${personLink(u.flags.murder.target)}</dd>`;
   if(u.flags.rebel) h+=`<dt>Rahasia</dt><dd style="color:#f0a0b0">menghimpun pemberontak</dd>`;
@@ -5993,8 +6583,130 @@ function finishSkip(){
   R_.lastTerrain=0; G.dirty.terrain=true; UI.pdirty=true; renderPanel(true);
   if(G.savedOnce) saveGame(true);
 }
+
+/* =====================================================================
+   UI 5: menonton eksplorasi dungeon, panel Hunter Village
+   ===================================================================== */
+UI.dv=null; UI.dvAuto=null;
+function mulberry(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+const DV_W=44, DV_H=28, DV_CACHE=new Map();
+function dunFloor(d,f){
+  const key=d.id+'|'+f; let F=DV_CACHE.get(key); if(F) return F;
+  const r=mulberry(d.id*1009+f*7919+13);
+  const grid=new Uint8Array(DV_W*DV_H);
+  const rooms=[]; const n=5+Math.floor(r()*3);
+  for(let i=0;i<n;i++){
+    const col=i/(n-1); const w=5+Math.floor(r()*5), h=4+Math.floor(r()*4);
+    const x=Math.max(1,Math.min(DV_W-w-1,Math.round(2+col*(DV_W-w-4)+(r()-.5)*4))), y=Math.max(1,Math.min(DV_H-h-1,Math.round(2+r()*(DV_H-h-4))));
+    rooms.push({x,y,w,h,cx:x+Math.floor(w/2),cy:y+Math.floor(h/2)});
+    for(let yy=y;yy<y+h;yy++) for(let xx=x;xx<x+w;xx++) grid[yy*DV_W+xx]=1;
+  }
+  const path=[];
+  for(let i=0;i<rooms.length;i++){
+    const a=rooms[i]; path.push({x:a.cx,y:a.cy});
+    if(i<rooms.length-1){ const b=rooms[i+1]; const hFirst=r()<.5;
+      const cx=hFirst?b.cx:a.cx, cy=hFirst?a.cy:b.cy;
+      for(let x=Math.min(a.cx,cx);x<=Math.max(a.cx,cx);x++){ grid[(hFirst?a.cy:cy)*DV_W+x]=1; grid[((hFirst?a.cy:cy)+1)*DV_W+x]=1; }
+      for(let y=Math.min(a.cy,b.cy);y<=Math.max(a.cy,b.cy);y++){ grid[y*DV_W+cx]=1; grid[y*DV_W+cx+1]=1; }
+      for(let x=Math.min(cx,b.cx);x<=Math.max(cx,b.cx);x++){ grid[(hFirst?b.cy:cy)*DV_W+x]=1; }
+      path.push({x:cx,y:cy}); }
+  }
+  const deco=[]; for(let i=0;i<40;i++){ const x=Math.floor(r()*DV_W), y=Math.floor(r()*DV_H); if(!grid[y*DV_W+x]&&(grid[(y+1)*DV_W+x]||grid[y*DV_W+x+1])) deco.push({x,y,k:r()<.5?'ore':'torch'}); }
+  let L=0; const seg=[]; for(let i=1;i<path.length;i++){ const l=Math.hypot(path[i].x-path[i-1].x,path[i].y-path[i-1].y); seg.push(l); L+=l; }
+  F={grid,rooms,path,seg,L,deco}; DV_CACHE.set(key,F); if(DV_CACHE.size>40) DV_CACHE.delete(DV_CACHE.keys().next().value); return F;
+}
+function pathAt(F,frac){
+  let dd=clamp(frac,0,1)*F.L; for(let i=1;i<F.path.length;i++){ const l=F.seg[i-1]; if(dd<=l||i===F.path.length-1){ const t=l?Math.min(1,dd/l):0; const a=F.path[i-1], b=F.path[i]; return {x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,dx:b.x-a.x}; } dd-=l; }
+  return F.path[0];
+}
+function openDV(pid){ UI.dv={pid}; $('dview').hidden=false; }
+function closeDV(){ UI.dv=null; $('dview').hidden=true; }
+function dvParty(){ return UI.dv&&G.parties.find(p=>p.id===UI.dv.pid); }
+function floorWindow(s,f){ const ev=s.ev; const st=(ev.find(e=>e.k==='floor'&&e.f===f)||{t:0}).t; const nx=ev.find(e=>e.k==='floor'&&e.f===f+1); const end=nx?nx.t:(ev.find(e=>e.k==='exit')||{t:s.T}).t; return [st,Math.max(st+1,end)]; }
+function drawDV(){
+  const cv=$('dvc'); if(!cv) return; const r=cv.getBoundingClientRect(); const dpr=Math.min(2,window.devicePixelRatio||1);
+  if(cv.width!==Math.round(r.width*dpr)||cv.height!==Math.round(r.height*dpr)){ cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr); }
+  const g=cv.getContext('2d'); g.imageSmoothingEnabled=false; g.setTransform(1,0,0,1,0,0); g.fillStyle='#0b0910'; g.fillRect(0,0,cv.width,cv.height);
+  const p=dvParty(); const s=p&&p.script; const hud=$('dvhud');
+  if(!p||!s){ const lr=p&&p.lastRun; hud.innerHTML=`<div class="box"><b style="color:var(--gold)">${p?esc(pName(p))+' sudah kembali ke permukaan.':'Party ini sudah tidak ada.'}</b>${lr?`<ul class="log">${lr.dlog.map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:''}</div>`; return; }
+  const d=G.dungeons.find(x=>x.id===s.d); if(!d){ closeDV(); return; }
+  const f=s.cur||1; const F=dunFloor(d,f);
+  const ts=Math.max(4,Math.floor(Math.min(cv.width/DV_W,(cv.height-20*dpr)/DV_H))); const ox=Math.floor((cv.width-ts*DV_W)/2), oy=Math.floor((cv.height-ts*DV_H)/2)+Math.round(14*dpr);
+  const pal=d.demon?['#2a1a24','#3a2430','#4a2e3a']:['#22202c','#2e2b3a','#3a3648'];
+  for(let y=0;y<DV_H;y++) for(let x=0;x<DV_W;x++){ const v=F.grid[y*DV_W+x]; if(v){ g.fillStyle=(x+y)%2?pal[1]:pal[2]; g.fillRect(ox+x*ts,oy+y*ts,ts,ts); }
+    else if(F.grid[(y+1)*DV_W+x]){ g.fillStyle='#4a4458'; g.fillRect(ox+x*ts,oy+y*ts,ts,ts); g.fillStyle='#3a3446'; g.fillRect(ox+x*ts,oy+y*ts+ts*.7,ts,ts*.3); } }
+  const now=performance.now();
+  for(const dc of F.deco){ const X=ox+dc.x*ts, Y=oy+dc.y*ts;
+    if(dc.k==='ore'&&d.ore){ g.fillStyle=['#e0e8f0','#7fe0ff','#c78aff'][Math.min(2,d.ore-1)]; g.fillRect(X+ts*.3,Y+ts*.3,ts*.25,ts*.4); g.fillRect(X+ts*.55,Y+ts*.45,ts*.2,ts*.3); }
+    else if(dc.k==='torch'){ g.fillStyle='#6a4a2a'; g.fillRect(X+ts*.45,Y+ts*.4,ts*.12,ts*.4); g.fillStyle=Math.floor(now/180+dc.x)%2?'#ffb040':'#ff7a2a'; g.fillRect(X+ts*.38,Y+ts*.15,ts*.26,ts*.3); g.fillStyle='rgba(255,170,60,.08)'; g.beginPath(); g.arc(X+ts/2,Y+ts/2,ts*3,0,7); g.fill(); } }
+  const last=F.path[F.path.length-1]; const first=F.path[0];
+  g.fillStyle='#120e18'; g.fillRect(ox+last.x*ts,oy+last.y*ts,ts*2,ts*2); g.fillStyle='#5a5070'; for(let i=0;i<4;i++) g.fillRect(ox+last.x*ts+i*ts*.5,oy+last.y*ts+i*ts*.5,ts*.5,ts*.15);
+  g.fillStyle='#8a7a5a'; g.fillRect(ox+first.x*ts-ts*.5,oy+first.y*ts-ts*.5,ts,ts*.3);
+  const [st,en]=floorWindow(s,f); const fr=clamp((s.el-st)/(en-st),0,1);
+  const fightOn=s.fight&&s.el-s.fight.t0<30;
+  const pos=pathAt(F,fightOn?clamp((s.fight.t0-st)/(en-st),0,1):fr);
+  const flip=(pos.dx||1)<0;
+  const fl=d.floors[f-1]||{};
+  if(fl.reward||s.chestAt){ const cp=pathAt(F,.8); const X=ox+cp.x*ts, Y=oy+cp.y*ts+ts*.6; const open=s.chestAt&&s.el>=s.chestAt&&cp&&fr>=.78; g.fillStyle='#6a4426'; g.fillRect(X-ts*.6,Y-ts*.5,ts*1.2,ts*.7); g.fillStyle=open?'#ffd36a':'#c8a050'; g.fillRect(X-ts*.6,Y-ts*.7,ts*1.2,ts*.25); if(open){ g.fillStyle='rgba(255,220,120,.35)'; g.fillRect(X-ts*.5,Y-ts*1.6,ts,ts*.9); } }
+  const spr=(img,X,Y,sc,fl_)=>{ g.save(); g.translate(Math.round(X),Math.round(Y)); if(fl_) g.scale(-1,1); g.drawImage(img,-FX*sc,-FY*sc,img.width*sc,img.height*sc); g.restore(); };
+  const sc=ts/7;
+  const mem=s.start.map(U).filter(m=>m&&!m.dead);
+  const frm=Math.floor(now/160)%4;
+  mem.forEach((m,i)=>{ const pp=pathAt(F,Math.max(0,(fightOn?clamp((s.fight.t0-st)/(en-st),0,1):fr)-i*.025)); const X=ox+(pp.x+.5)*ts+(i%2?ts*.4:-ts*.2), Y=oy+(pp.y+1)*ts+(i%2?ts*.3:0);
+    spr(unitSprite(m,'side',fightOn||fr<1?frm:0),X,Y,sc,flip);
+    for(const pid of petsOf(m)){ const pt=U(pid); if(pt) spr(unitSprite(pt,'side',frm),X-ts*1.1*(flip?-1:1),Y+ts*.2,sc*(MON[pt.mk]?.sc||1)*.9,flip); }
+    g.fillStyle='rgba(0,0,0,.6)'; g.fillRect(X-ts*.6,Y-ts*4.6,ts*1.2,ts*.18); g.fillStyle='#6ad06a'; g.fillRect(X-ts*.6,Y-ts*4.6,ts*1.2*clamp(m.hp/m.maxHp,0,1),ts*.18); });
+  if(fightOn){ const ahead=pathAt(F,clamp((s.fight.t0-st)/(en-st)+.06,0,1)); s.fight.mons.slice(0,6).forEach((k,i)=>{ const M=MON[k]; if(!M) return; const X=ox+(ahead.x+.5)*ts+(i%3)*ts*1.4*(flip?-1:1), Y=oy+(ahead.y+1)*ts+Math.floor(i/3)*ts*1.3-ts*.4;
+      const hit=s.el-s.fight.t0; const gone=hit>20+i; g.globalAlpha=gone?Math.max(0,1-(hit-20-i)/5):1; spr(monSprite({k:M.k,c:M.c,race:M.race,job:M.job,king:M.king,eye:M.eye,dir:'side'},frm),X,Y,sc*(M.sc||1),!flip); g.globalAlpha=1;
+      if(!gone&&Math.floor(now/120+i)%3===0){ g.strokeStyle='#ffffff'; g.lineWidth=Math.max(1,ts*.12); g.beginPath(); g.arc(X,Y-ts*1.4,ts*.7,-.9,.9); g.stroke(); } }); }
+  if(s.trapAt&&s.el-s.trapAt<8){ g.fillStyle='rgba(220,60,60,.25)'; g.beginPath(); g.arc(ox+(pos.x+.5)*ts,oy+(pos.y+.8)*ts,ts*2.6,0,7); g.fill(); for(let i=0;i<5;i++){ g.fillStyle='#c8c8d0'; g.fillRect(ox+(pos.x+.5)*ts+(i-2)*ts*.5,oy+(pos.y+1)*ts-ts*.8,ts*.15,ts*.8); } }
+  if(s.boss){ const X=ox+(last.x+1)*ts, Y=oy+(last.y+2)*ts; const bs={race:'iblis',stage:'dewasa',job:'rajaIblis',sex:'m',skin:'#b07a8a',hair:'#1a1a22',eye:'#ff3050',cloth:'#3a1020',style:'long'}; spr(sprite(bs,'down',frm),X,Y,sc*1.8,false); g.fillStyle='rgba(255,40,80,.12)'; g.beginPath(); g.arc(X,Y-ts*2,ts*4,0,7); g.fill(); }
+  const fallen=s.fallen.map(id=>person(id)).filter(Boolean);
+  hud.innerHTML=`<div class="box"><b style="color:${d.demon?'#ff9aa8':'var(--gold)'}">${esc(d.name)}</b> · lantai ${f}${s.boss?' · <span style="color:#ff9aa8">Raja Iblis!</span>':''}<br><span class="sub">${esc(pName(p))} · ${mem.map(m=>esc(m.name)).join(', ')}${fallen.length?` · gugur: ${fallen.map(m=>esc(m.name)).join(', ')}`:''}</span></div>
+  <div class="box"><ul class="log">${s.dlog.slice(-5).map(l=>`<li>${esc(l)}</li>`).join('')}</ul></div>`;
+}
+function dvAutoCheck(){
+  if(UI.dv||!UI.follow||!UI.sel||UI.sel.type!=='unit') return;
+  const u=U(UI.sel.id); if(!u||!u.inside) return; const p=partyOf(u); if(!p||p.state!=='in'||!p.script) return;
+  const key=p.id+':'+p.lastOut; if(UI.dvAuto===key) return; UI.dvAuto=key; openDV(p.id);
+}
+
+/* ---------- panel Hunter Village ---------- */
+function hvHtml(k){
+  const hv=G.hv; if(!hv||!k.hunter) return '';
+  const t=hvTown(); const ppl=G.units.filter(u=>!u.dead&&u.kingdom===k.id&&u.race!=='monster');
+  const hunters=ppl.filter(u=>u.career==='hunter'), tamers=ppl.filter(u=>u.career==='kurir');
+  const mats=Object.entries(hv.mat||{});
+  return `<h4>Hunter Village</h4><p class="sub" style="margin:0">${hunters.length} Hunter · ${tamers.length} Tamer · ${hv.licensed||0} lisensi baru · ${hv.armors||0} zirah monster ditempa · ${hv.eggs||0} telur monster terjual</p>
+  <h4>Papan quest</h4>${hv.quests.filter(q=>!q.done).length?`<ul class="log">${hv.quests.filter(q=>!q.done).map(q=>{ const g=hv.groups.find(x=>x.id===q.taken); return `<li>${esc(q.name)} · ${q.reward} emas${g?` · <span style="color:var(--dun)">dikerjakan ${g.members.map(U).filter(Boolean).map(v=>esc(v.name)).join(', ')}</span>`:''}</li>`; }).join('')}</ul>`:'<p class="sub" style="margin:0">Kosong.</p>'}
+  ${mats.length?`<h4>Bahan monster</h4><div class="chips">${mats.map(([n,q])=>`<span class="chip gold">${esc(n)} ×${q}</span>`).join('')}</div>`:''}
+  ${(hv.log||[]).length?`<ul class="log">${hv.log.slice(0,6).map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:''}`;
+}
+function hvGroupsHtml(){
+  const hv=G.hv; if(!hv||!hv.groups||!hv.groups.length) return '';
+  return `<div class="card"><h3>Grup Hunter</h3><p class="sub" style="margin:0">Maksimal 4 orang, berkumpul di Guild Hall untuk satu quest, lalu bubar setelah quest selesai.</p>${hv.groups.map(g=>{ const q=hvQuest(g); return `<div class="sub">${q?esc(q.name):'?'} · ${g.members.map(id=>personLink(id)).join(', ')} · ${g.state==='back'?(g.carcass?'menyeret bangkai pulang':'pulang'):g.state==='do'?'di lokasi':'berangkat'}${g.kills?` · ${g.kills} kill`:''}</div>`; }).join('')}</div>`;
+}
+function unitExtra8(u){
+  let h='';
+  if(u.flags.epithet) h+=`<dt>Julukan</dt><dd style="color:var(--gold)">${esc(u.flags.epithet)}</dd>`;
+  if(isHV(u)) h+=`<dt>Lisensi</dt><dd>${esc(BERKAT[u.b].n)} · Hunter Village${u.flags.formerBerkat?` · berkat lama: ${esc(u.flags.formerBerkat)}`:''}${u.flags.hquests?` · ${u.flags.hquests} quest`:''}</dd>`;
+  const neko=petsOf(u).map(U).find(m=>m&&m.mk==='neko'); if(neko) h+=`<dt>Partner</dt><dd>${esc(neko.petName)} si Neko</dd>`;
+  if(u.mountMon) h+=`<dt>Tunggangan</dt><dd>${esc(MON[u.mountMon].n)}${u.cart?' dengan gerobak':''}${u.flags.trips?` · ${u.flags.trips} pengantaran`:''}</dd>`;
+  if(u.hq&&G.hv){ const g=hvGroup(u); const q=g&&hvQuest(g); if(q) h+=`<dt>Quest</dt><dd>${esc(q.name)}</dd>`; }
+  if(u.inside&&partyOf(u)&&partyOf(u).state==='in') h+=`<dt>Dungeon</dt><dd><span class="link" data-dvp="${partyOf(u).id}">Tonton di dalam dungeon</span></dd>`;
+  return h;
+}
+function dungeonInsideHtml(d){
+  const ps=G.parties.filter(p=>p.state==='in'&&p.target===d.id&&p.script);
+  return ps.length?`<div class="card"><h3>Di dalam sekarang</h3>${ps.map(p=>`<div class="row" style="justify-content:space-between"><span>${esc(pName(p))} · lantai ${p.script.cur||1}</span><button class="btn" data-dvp="${p.id}">Tonton</button></div>`).join('')}</div>`:'';
+}
+function initUI5(){
+  $('dvx').addEventListener('click',closeDV);
+  $('pbody').addEventListener('click',e=>{ const v=e.target.closest('[data-dvp]'); if(v){ openDV(+v.dataset.dvp); } });
+}
 initUI();
 initUI2();
 initUI3();
+initUI5();
 
 </script>
