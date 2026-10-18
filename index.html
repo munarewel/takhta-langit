@@ -984,6 +984,7 @@ function die(u,killer,cause){
   if(has(u,'Pantang Menyerah')&&!u.flags.grit&&killer){ u.flags.grit=yearInt(); u.hp=1; hist(u,'menolak tumbang dan bangkit lagi'); if(isAdult(u)&&u.lvl>=8) log(`${fullName(u)} seharusnya tumbang, tapi menolak menyerah dan bangkit lagi.`,'hero',{x:u.x,y:u.y}); return; }
   const wasInside=u.inside&&!u.patient;
   u.dead=true; u.hp=0; u.inside=false; u.downed=null; u.patient=null; u.fx=null;
+  if(u.ally) allyDeath(u);
   if(killer&&killer.flags&&killer.flags.murder&&killer.flags.murder.target===u.id) murderResolved(killer,u);
   if(u.possessed){ u.possessed=false; G.possess=null; G.dirty.possess=true; }
   for(const p of u.pets||[]){ const m=U(p); if(m&&!m.dead) releasePet(m,u); }
@@ -1105,6 +1106,8 @@ function chooseTask(u){
   u.inside=false;
   if(u.flags.infil) return infilTask(u);
   if(u.flags.hvWait&&hvWaitTask(u)) return;
+  if(u.flags.haul){ haulStep(u); if(u.task) return; }
+  if(u.ally){ allyStep(u); if(u.task) return; }
   if(u.hq&&!isNight()){ u.task={k:'hq'}; return; }
   if(u.dungeonLord){ u.inside=true; u.task={k:'idle',t:200}; return; }
   if(u.flags.murder&&isNight()&&isAdult(u)&&murderTask(u)) return;
@@ -1425,6 +1428,8 @@ function runTask(u){
     case 'herd': herdStep(u,k); break;
     case 'cook': cookStep(u,k); break;
     case 'hq': hqStep(u); break;
+    case 'ally': allyStep(u); break;
+    case 'haul': haulStep(u); break;
     case 'courier': courierStep(u,k); break;
     case 'bath': bathStep(u,k); break;
     case 'enchant': enchantStep(u,k); break;
@@ -1816,6 +1821,7 @@ function threatCheck(u){
     const mine=allies.reduce((s,v)=>s+v.hp*v.atk,0)+1, theirs=near(e.x,e.y,70,v=>sideOf(v)==='M').reduce((s,v)=>s+v.hp*v.atk,0);
     const inHunt=u.party&&partyOf(u)?.state==='hunt'; if(theirs*(has(u,'Pemberani')||has(u,'Pantang Menyerah')||inHunt?.9:1.5)>mine&&!inTownZone(u.x,u.y)) brave=false;
   }
+  if(u.ally&&canFight(u)) brave=true;
   if(brave){ u.path=[]; u.task={k:'fight',target:e.id,t:0}; }
   else if(isAdult(u)||stageOf(u)!=='bayi'){
     const h=B(u.home); u.path=[];
@@ -1846,6 +1852,7 @@ function fightStep(u,k){
 }
 function monsterKilled(m,killer){
   const def=MON[m.mk];
+  allyKill(m,killer);
   { const kh=killer.tamer?U(killer.tamer)||killer:killer; if(kh.hq) hvKill(kh,m); }
   { const kh=killer.tamer?U(killer.tamer)||killer:killer; const tt=TN(kh.town); if(tt&&MON_DROP[m.mk]&&rnd()<.5) addIngr(tt,MON_DROP[m.mk],1); if(def.legend) legendSlain(m,kh); }
   const party=killer.party?G.parties.find(p=>p.id===killer.party):null;
@@ -2472,6 +2479,7 @@ function damage(v,amt,src,cause){
   if(v.dead) return;
   if(v.downed){ die(v,src,cause||(src?`dihabisi ${src.name} saat tergeletak`:'tewas karena luka parah')); return; }
   const def=v.race==='monster'&&MON[v.mk]?(MON[v.mk].armor||0):0;
+  if(src&&(src.ally||v.ally)) amt=allyMod(v,src,amt);
   let d=amt-(v.def+def+armorDef(v.armorItem))*.5; if(v.bless==='Perlindungan Ilahi') d*=.6; d=Math.max(1,d); d=armorOnHit(v,src,d); if(d<=0){ FX_QUEUE.push({k:'dmg',x:v.x,y:v.y-26,v:'luput',c:'#c0f0ff',t:30}); return 0; }
   v.hp-=d; v.lastHit=G.step;
   FX_QUEUE.push({k:'dmg',x:v.x+ri(-3,3),y:v.y-26,v:Math.round(d),c:sideOf(v)==='H'?'#ff8a7a':'#fff2c0',t:34});
@@ -2721,6 +2729,7 @@ function stepPet(m){
   const o=U(m.tamer);
   if(!o||o.dead){ releasePet(m,o); return; }
   if(m.mk==='neko'&&o.downed&&nekoCarry(m,o)) return;
+  if(m.mk==='neko'&&nekoSmart(m,o)) return;
   if(m.cd>0) m.cd--;
   if(G.step%20===0&&m.hp<m.maxHp) m.hp=Math.min(m.maxHp,m.hp+m.maxHp*.02);
   const pt=o.party&&G.parties.find(p=>p.id===o.party);
@@ -4022,7 +4031,7 @@ function guildRecruit(t,people){
 
 /* ---------- harian & tahunan ---------- */
 function daily6(){
-  legendDaily();
+  legendDaily(); allianceDaily();
   for(const t of G.towns){ const people=G.units.filter(u=>!u.dead&&u.town===t.id&&u.race!=='monster'); pantryDaily(t,people); armorDaily(t); shopsDaily(t,people); guildRecruit(t,people); soloParties(t); }
   for(const u of G.units) if(!u.dead&&u.race!=='monster'&&tamerInfo(u)&&tamerInfo(u).share) recalcStats(u);
 }
@@ -4542,6 +4551,246 @@ function hvWatchdog(){
   }
   if(hv.state==='asking'&&G.step-hv.since.at>DAY*4){ hvDecide(); hv.since={state:hv.state,at:G.step}; }
 }
+
+/* =====================================================================
+   SIMULASI 9: Aliansi Perburuan melawan monster S/SS pemakan korban,
+   Balai Lelang (Auction Hall), Neko lebih cerdas
+   ===================================================================== */
+BLD.lelang={n:'Balai Lelang',w:8,h:6,work:1200,wood:30,stone:30};
+const ALLY_COLORS=['#e8c050','#7fc8ff','#e86a5a','#9ad06a','#d090f0'];
+function allyOf(u){ return u&&u.ally?(G.alliances||[]).find(a=>a.id===u.ally&&a.state!=='done'):null; }
+function allyMembers(al){ return al.members.map(U).filter(v=>v&&!v.dead); }
+function bigMon(m){ const r=MON[m.mk]&&MON[m.mk].rank; return r==='S'||r==='SS'; }
+function allyEligible(u){
+  if(u.dead||u.race==='monster'||!isAdult(u)||u.captive||u.possessed||u.downed||u.patient||u.dungeonLord||u.flags.infil) return false;
+  if(u.ally||u.hq) return false;
+  if(u.royal&&u.title!=='Pangeran'&&u.title!=='Putri') return false;
+  if(u.inside&&partyOf(u)&&partyOf(u).state==='in') return false;
+  if(u.lvl<3) return false;
+  if(u.party&&partyOf(u)&&partyOf(u).state!=='rest') return false;
+  return canFight(u)||u.career==='hunter'||u.career==='penjaga'||u.career==='petualang';
+}
+function allyPower(u){ return u.lvl*3+u.atk*.6+u.maxHp*.05+armorDef(u.armorItem)*.5+(u.weapon&&typeof u.weapon==='object'?u.weapon.atk*.3:0); }
+function rallyPoint(m,from){
+  for(let tries=0;tries<40;tries++){
+    const a=Math.atan2(from.y-m.y,from.x-m.x)+(rnd()-.5)*(tries<20?.8:3), r=(17+rnd()*5)*TS;
+    const x=m.x+Math.cos(a)*r, y=m.y+Math.sin(a)*r; const t=tileOfPx(x,y);
+    if(x>TS*3&&y>TS*3&&x<(MW-3)*TS&&y<(MH-3)*TS&&[T.SAND,T.GRASS,T.FOREST,T.DESERT,T.HILLS].includes(t)) return {x,y};
+  }
+  return {x:from.x,y:from.y};
+}
+function allianceDaily(){
+  G.alliances=G.alliances||[]; G.allyLog=G.allyLog||[];
+  // bersihkan yang selesai
+  G.alliances=G.alliances.filter(a=>a.state!=='done'||G.step-a.ended<DAY*3);
+  for(const al of G.alliances) if(al.state!=='done') allyCheck(al);
+  if(G.alliances.filter(a=>a.state!=='done').length>=2) return;
+  const cands=G.units.filter(m=>!m.dead&&m.race==='monster'&&!m.tamer&&!m.inside&&!m.flags.sea&&!(MON[m.mk]&&MON[m.mk].sea)&&bigMon(m)&&(m.kills||0)>=1&&!(m.flags.allyCd>G.step)&&!G.alliances.some(a=>a.target===m.id&&a.state!=='done'));
+  for(const m of cands){
+    const ks=G.kingdoms.filter(k=>k.alive&&!k.hunter&&TN(k.capital)).map(k=>{ const t=TN(k.capital); return {k,d:dist((t.cx+1)*TS,(t.cy+1)*TS,m.x,m.y)}; }).filter(o=>o.d<130*TS).sort((a,b)=>a.d-b.d).slice(0,5);
+    if(!ks.length) continue;
+    if(rnd()>.6) continue;
+    formAlliance(m,ks.map(o=>o.k));
+    break;
+  }
+}
+function formAlliance(m,kings){
+  G.alliances=G.alliances||[]; G.allyLog=G.allyLog||[];
+  const def=MON[m.mk];
+  const al={id:newId(),target:m.id,mk:m.mk,kingdoms:[],members:[],state:'gather',started:G.step,ended:null,hv:false,dead:[],xp:0,color:ALLY_COLORS[(G.alliances.length+G.allyLog.length)%ALLY_COLORS.length],victims:m.kills||0};
+  const send={};
+  for(const k of kings){
+    const all=G.units.filter(u=>u.kingdom===k.id&&allyEligible(u)).sort((a,b)=>allyPower(b)-allyPower(a)); const top=all[0]?all[0].lvl:0;
+    const pool=all.filter(u=>u.lvl>=Math.max(3,Math.floor(top*.5))).slice(0,10);
+    if(pool.length<2) continue;
+    al.kingdoms.push(k.id); send[k.id]=pool;
+  }
+  const ht=hvTown();
+  if(ht&&G.hv&&G.hv.state==='founded'){
+    const pool=G.units.filter(u=>u.town===ht.id&&u.career==='hunter'&&allyEligible(u)).sort((a,b)=>allyPower(b)-allyPower(a)).slice(0,10);
+    if(pool.length>=2){ al.hv=true; send.hv=pool; }
+  }
+  const all=Object.values(send).flat();
+  if(all.length<6){ m.flags.allyCd=G.step+DAY*4; return null; }
+  const ratio=allyRatio(all,m); al.ratio=ratio; m.flags.allyRatio=ratio;
+  if(ratio<ALLY_MIN){ m.flags.allyCd=G.step+YEAR*.5; if(!m.flags.allyWarned){ m.flags.allyWarned=1; const names=al.kingdoms.map(id=>K(id).name);
+      log(`Para penguasa ${names.join(', ')} bertemu membahas ${def.n} yang terus memakan korban. Kesimpulannya pahit: gabungan petarung terbaik mereka belum cukup kuat. Rakyat diminta menjauhi wilayahnya sampai para petarung lebih tangguh.`,'war',{x:m.x,y:m.y});
+      plogAlly(`Aliansi melawan ${def.n} ditunda: kekuatan gabungan belum cukup (${Math.round(ratio*100)}%).`); }
+    return null; }
+  const lead=TN(K(al.kingdoms[0])?.capital)||ht;
+  const from=lead?{x:(lead.cx+1)*TS,y:(lead.cy+1)*TS}:{x:m.x+200,y:m.y};
+  const rp=rallyPoint(m,from); al.rx=rp.x; al.ry=rp.y;
+  for(const u of all){ u.ally=al.id; u.task=null; u.path=[]; al.members.push(u.id); if(u.party){ const p=partyOf(u); if(p&&p.state==='rest') {} } hist(u,`dipanggil bergabung dengan aliansi perburuan ${def.n}`); }
+  al.lead=al.kingdoms[0]||null;
+  G.alliances.push(al);
+  const names=al.kingdoms.map(id=>K(id).name).concat(al.hv?['Hunter Village']:[]);
+  log(`${def.n} sudah menelan ${m.kills} korban jiwa. ${names.length>1?names.slice(0,-1).join(', ')+' dan '+names[names.length-1]:names[0]} membentuk Aliansi Perburuan! ${all.length} petarung terkuat dikirim dan berkumpul sebelum menyerang bersamaan.`,'war',{x:m.x,y:m.y});
+  plogAlly(`Aliansi dibentuk melawan ${def.n} (${all.length} petarung dari ${names.join(', ')}).`);
+  return al;
+}
+function plogAlly(s){ G.allyLog=G.allyLog||[]; G.allyLog.unshift(`Th ${yearInt()}: ${s}`); if(G.allyLog.length>24) G.allyLog.pop(); }
+function allyCheck(al){
+  const m=U(al.target); const mem=allyMembers(al);
+  if(!m||m.dead){ if(al.state!=='done') allyEnd(al,m&&m.dead&&!al.won?'other':'gone'); return; }
+  if(!mem.length){ allyEnd(al,'wiped'); return; }
+  if(al.state==='gather'){
+    const there=mem.filter(u=>dist(u.x,u.y,al.rx,al.ry)<60).length;
+    if(there>=Math.ceil(mem.length*.75)||G.step-al.started>DAY*2){ al.state='attack'; al.attackAt=G.step; al.mult=1+Math.min(.8,mem.length*.04);
+      log(`Aliansi Perburuan sudah berkumpul (${there}/${mem.length}). Aba-aba dibunyikan, semua menyerbu ${MON[al.mk].n} bersamaan!`,'war',{x:al.rx,y:al.ry}); }
+  } else if(al.state==='attack'){
+    const fighting=mem.filter(u=>!u.downed&&u.hp>u.maxHp*.25).length;
+    if(G.step-al.attackAt>DAY*3||fighting<Math.max(2,al.members.length*.25)) allyEnd(al,'retreat');
+  }
+}
+function allyStep(u){
+  const al=allyOf(u); if(!al){ u.ally=null; u.task=null; return; }
+  const m=U(al.target); if(!m||m.dead){ u.ally=null; u.task=null; return; }
+  u.task={k:'ally'};
+  const jx=((u.id*37)%60)-30, jy=((u.id*53)%40)-20;
+  if(al.state==='gather'){
+    if(dist(u.x,u.y,al.rx,al.ry)>40){ if(!u.path.length||G.step%60===u.id%60) goTo(u,al.rx+jx,al.ry+jy); }
+    else { u.path=[]; u.moving=false; if(G.step%20===0&&u.hp<u.maxHp) u.hp=Math.min(u.maxHp,u.hp+u.maxHp*.02); }
+    return;
+  }
+  // serangan: mundur sebentar bila terluka, tabib di titik kumpul
+  if(u.flags.allyRest){
+    if(u.hp>=u.maxHp*.7){ u.flags.allyRest=0; }
+    else { if(dist(u.x,u.y,al.rx,al.ry)>40){ if(!u.path.length||G.step%60===u.id%60) goTo(u,al.rx+jx,al.ry+jy); } else { u.path=[]; if(G.step%10===0) u.hp=Math.min(u.maxHp,u.hp+u.maxHp*.025); } return; }
+  }
+  if(u.hp<u.maxHp*.35&&!has(u,'Pantang Menyerah')){ u.flags.allyRest=1; FX_QUEUE.push({k:'say',x:u.x,y:u.y-24,t:40,s:'Mundur!'}); goTo(u,al.rx+jx,al.ry+jy); return; }
+  const d=dist(u.x,u.y,m.x,m.y);
+  if(d<170&&isHostile(u,m)){ u.task={k:'fight',target:m.id,ally:al.id}; u.path=[]; return; }
+  if(!u.path.length||G.step%30===u.id%30) goTo(u,m.x+jx*.5,m.y+jy*.5);
+}
+function allyEnd(al,why){
+  if(al.state==='done') return;
+  al.state='done'; al.ended=G.step;
+  const m=U(al.target), def=MON[al.mk];
+  for(const id of al.members){ const u=U(id); if(u){ u.ally=null; u.flags.allyRest=0; if(u.task&&(u.task.k==='ally'||u.task.ally===al.id)) u.task=null; u.path=[]; } }
+  if(why==='retreat'){ if(m) m.flags.allyCd=G.step+YEAR*.6; log(`Aliansi Perburuan gagal menumbangkan ${def.n} dan mundur. ${al.dead.length?`${al.dead.length} petarung gugur.`:''}`,'war',m?{x:m.x,y:m.y}:null); plogAlly(`Aliansi melawan ${def.n} mundur. Gugur: ${al.dead.length}.`); }
+  else if(why==='wiped'){ if(m) m.flags.allyCd=G.step+YEAR; log(`Seluruh Aliansi Perburuan melawan ${def.n} tumbang. Negeri-negeri berduka.`,'war',m?{x:m.x,y:m.y}:null); plogAlly(`Aliansi melawan ${def.n} musnah.`); }
+  else if(why==='other'||why==='gone'){ plogAlly(`Aliansi melawan ${def.n} dibubarkan: makhluk itu ${why==='other'?'sudah ditumbangkan pihak lain':'menghilang'}.`); }
+}
+/* dipanggil dari die() saat anggota aliansi gugur */
+function allyDeath(u){ const al=allyOf(u); if(al){ al.dead.push(u.name); } }
+/* dipanggil dari monsterKilled */
+function allyKill(m,killer){
+  const al=(G.alliances||[]).find(a=>a.target===m.id&&a.state!=='done'); if(!al) return;
+  const def=MON[m.mk], rk=RANK_ORDER.indexOf(def.rank);
+  const isMember=al.members.includes(killer.id);
+  al.won=true; al.killer=killer.id; al.lastHit=killer.name;
+  const mem=allyMembers(al);
+  for(const u of mem){ gainXp(u,def.xp*.55); u.gold+=def.bounty*.5/mem.length; hist(u,`ikut Aliansi Perburuan yang menumbangkan ${def.n}`); u.flags.allyWins=(u.flags.allyWins||0)+1; }
+  al.xp=Math.round(def.xp*.55);
+  for(const id of al.kingdoms){ const k=K(id); if(k) k.treasury+=def.bounty*.3; }
+  log(`${def.n} tumbang! Serangan serentak Aliansi Perburuan berhasil${isMember?`, pukulan terakhir oleh ${fullName(killer)}`:''}. ${mem.length} petarung selamat${al.dead.length?`, ${al.dead.length} gugur`:''}. Semua anggota mendapat ${al.xp} XP dari perburuan ini.`,'hero',{x:m.x,y:m.y});
+  plogAlly(`${def.n} ditumbangkan aliansi. Pukulan terakhir: ${killer.name}. Gugur: ${al.dead.length}.`);
+  allyEnd(al,'win'); al.state='done';
+  // bangkai: tamer menyeret ke Balai Lelang
+  const hall=auctionHall(al);
+  const tamer=pickHauler(al,m);
+  al.carcass={mk:m.mk,x:m.x,y:m.y,hall:hall?hall.id:null,hauler:tamer?tamer.id:null,at:G.step};
+  if(tamer&&hall){ tamer.flags.haul={al:al.id,mk:m.mk,x:m.x,y:m.y,phase:'go',until:G.step+DAY*4}; tamer.task=null; tamer.path=[];
+    log(`${fullName(tamer)}, seorang Tamer, berangkat mengambil bangkai ${def.n} untuk dikuliti dan dibawa ke ${BLD.lelang.n} di ${TN(hall.town).name}.`,'life',{x:tamer.x,y:tamer.y}); }
+  else runAuction(al,false);
+}
+function pickHauler(al,m){
+  const ok=u=>!u.dead&&u.race!=='monster'&&isAdult(u)&&!u.downed&&!u.captive&&!u.possessed&&!u.flags.haul&&(BERKAT[u.b].n==='Tamer'||tamerInfo(u));
+  const sc=u=>(u.royal?1e6:0)+dist(u.x,u.y,m.x,m.y);
+  const inAl=allyMembers(al).filter(ok); if(inAl.length) return inAl.sort((a,b)=>sc(a)-sc(b))[0];
+  if(false) return inAl.sort((a,b)=>dist(a.x,a.y,m.x,m.y)-dist(b.x,b.y,m.x,m.y))[0];
+  return G.units.filter(ok).sort((a,b)=>sc(a)-sc(b))[0]||null;
+}
+function auctionHall(al){
+  const ht=hvTown(); const t=ht||TN(K(al.lead)?.capital)||al.kingdoms.map(id=>TN(K(id)?.capital)).find(Boolean);
+  if(!t) return null;
+  let b=townBuildings(t,'lelang')[0];
+  if(!b){ const s=freeSlot(t)||{x:t.cx+ri(-6,6),y:t.cy+ri(4,7)}; b=addBuilding(t,'lelang',s); b.done=true; b.progress=b.work; t.queue=t.queue.filter(id=>id!==b.id);
+    log(`${BLD.lelang.n} didirikan di ${t.name}. Hasil buruan aliansi akan dilelang di sini.`,'life',{x:(b.x+4)*TS,y:(b.y+3)*TS}); }
+  return b;
+}
+function haulStep(u){
+  const h=u.flags.haul; const al=(G.alliances||[]).find(a=>a.id===h.al);
+  const hall=al&&al.carcass&&B(al.carcass.hall);
+  if(!al||!hall||G.step>h.until){ u.flags.haul=null; u.task=null; if(al&&!al.auctioned) runAuction(al,false); return; }
+  u.task={k:'haul'};
+  if(h.phase==='go'){
+    if(dist(u.x,u.y,h.x,h.y)<20){ h.phase='back'; u.path=[]; FX_QUEUE.push({k:'say',x:u.x,y:u.y-24,t:50,s:'Kuliti di Balai!'}); }
+    else if(!u.path.length||G.step%60===u.id%60) goTo(u,h.x,h.y);
+    return;
+  }
+  const d=bldDoor(hall);
+  if(dist(u.x,u.y,d.x,d.y)<20){ u.flags.haul=null; u.task=null; u.gold+=MON[h.mk].bounty*.1; hist(u,`menyeret bangkai ${MON[h.mk].n} ke ${BLD.lelang.n}`); runAuction(al,true); return; }
+  if(!u.path.length||G.step%60===u.id%60) goTo(u,d.x,d.y);
+}
+function runAuction(al,skinned){
+  if(al.auctioned) return; al.auctioned=true;
+  const def=MON[al.mk], rk=RANK_ORDER.indexOf(def.rank), hall=al.carcass&&B(al.carcass.hall), t=hall&&TN(hall.town);
+  const mat=`${MAT_WORD(al.mk)} ${def.n}`;
+  const base=Math.round(def.bounty*(skinned?1.6:1.1));
+  // penawar: anggota aliansi & petarung kaya dari kerajaan aliansi
+  const pool=G.units.filter(u=>!u.dead&&u.race!=='monster'&&isAdult(u)&&(al.members.includes(u.id)||al.kingdoms.includes(u.kingdom)&&canFight(u)||al.hv&&isHV(u))&&u.gold>=base*.25);
+  const bids=pool.map(u=>({u,b:Math.round(Math.min(u.gold,u.gold*(.45+rnd()*.45)+(al.members.includes(u.id)?base*.2:0)))})).sort((a,b)=>b.b-a.b);
+  const top=bids[0];
+  const smith=t&&(G.units.find(u=>!u.dead&&u.town===t.id&&u.flags.hvSmith)||G.units.filter(u=>!u.dead&&u.town===t.id&&roleOf(u)==='tempa'&&isAdult(u)).sort((a,b)=>b.lvl-a.lvl)[0]);
+  const fx=def.onHit?{burn:'api',poison:'racun',slow:'es',curse:'bayang'}[def.onHit.k]:null;
+  const armor={id:newId(),name:`Zirah ${def.n}`,type:'Zirah',mat:'mithril',rar:5,def:Math.round(16+rk*6+ri(0,6)),maker:smith?smith.id:null,makerName:smith?smith.name:'pandai besi aliansi',y:yearInt(),armor:1,owners:[],monster:al.mk,ench:{k:'baja',lvl:Math.min(5,rk-2),by:`bahan ${def.n}`}};
+  if(rk>=7) armor.ench2={k:pick(['duri','angin']),lvl:3,by:`bahan ${def.n}`};
+  let winner=null, price=0;
+  if(top&&top.b>=base*.3){ winner=top.u; price=top.b; winner.gold-=price; }
+  else { winner=U(al.killer)||allyMembers(al)[0]; price=0; }
+  if(winner){ armor.owners=[winner.name]; if(winner.armorItem&&t){ t.armorShop=t.armorShop||[]; t.armorShop.push(winner.armorItem); } winner.armorItem=armor; hist(winner,price?`memenangkan lelang ${armor.name} seharga ${price} emas`:`menerima ${armor.name} dari aliansi`); }
+  if(smith){ smith.gold+=price*.1; gainXp(smith,10); }
+  // hasil lelang dibagi: kas kerajaan aliansi & para anggota yang selamat
+  const mem=allyMembers(al); const forK=price*.45, forM=price*.45;
+  const ks=al.kingdoms.map(K).filter(Boolean); for(const k of ks) k.treasury+=forK/Math.max(1,ks.length);
+  for(const u of mem) u.gold+=forM/Math.max(1,mem.length);
+  al.auction={item:armor.name,def:armor.def,winner:winner?winner.id:null,price,bidders:bids.length,where:t?t.name:'?'};
+  const where=t?`${BLD.lelang.n} ${t.name}`:'lelang terbuka';
+  log(`Lelang di ${where}: ${bids.length} penawar memperebutkan ${armor.name} (+${armor.def}). ${winner?(price?`${fullName(winner)} menang dengan ${price} emas.`:`Tak ada yang sanggup menawar; zirah diserahkan pada ${fullName(winner)}.`):''}`,'hero',hall?{x:(hall.x+4)*TS,y:(hall.y+3)*TS}:null);
+  plogAlly(`Lelang ${armor.name} (+${armor.def}): ${winner?winner.name:'-'}${price?` · ${price} emas`:''}.`);
+  // bahan sisa
+  if(G.hv&&hvTown()){
+    const qn=ri(3,5)+(rk>=7?2:0); G.hv.mat[mat]=(G.hv.mat[mat]||0)+qn; G.hv.matMk[mat]=al.mk; G.hv.matOwner=G.hv.matOwner||{}; G.hv.matOwner[mat]=mem.map(v=>v.id);
+    plogHV(`Aliansi menyerahkan ${qn} ${mat} sisa lelang ke bengkel.`);
+    log(`Sisa bahan (${qn} ${mat.toLowerCase()}) diserahkan ke penempa Hunter Village.`,'life',null);
+  } else {
+    const lh=U(al.killer); if(lh&&!lh.dead){
+      if(rnd()<.5){ const w={id:newId(),name:`${pick(['Taring','Cakar','Tanduk','Tulang'])} ${def.n}`,type:pick(['Pedang','Tombak','Kapak']),mat:'mithril',rar:4,atk:Math.round(26+rk*4+ri(0,8)),maker:null,makerName:'bahan monster',y:yearInt(),kills:0,owners:[],monster:al.mk};
+        if(fx) w.ench={k:fx==='bayang'?'darah':fx,lvl:3,by:`bahan ${def.n}`};
+        const cur=lh.weapon&&typeof lh.weapon==='object'?lh.weapon.atk:0; if(w.atk>cur) equip(lh,w,'hadiah'); else lh.gold+=w.atk*4;
+        log(`${fullName(lh)}, pemberi pukulan terakhir, mendapat ${w.name} dari sisa bangkai.`,'hero',{x:lh.x,y:lh.y}); }
+      else { const a={id:newId(),name:`${pick(['Helm','Sarung Tangan','Sepatu'])} ${MAT_WORD(al.mk)} ${def.n}`,type:'Helm',mat:'mithril',rar:4,def:Math.round(10+rk*3+ri(0,4)),maker:null,makerName:'bahan monster',y:yearInt(),armor:1,owners:[lh.name],monster:al.mk};
+        if(armorDef(a)>armorDef(lh.armorItem)) lh.armorItem=a; else lh.gold+=a.def*5;
+        log(`${fullName(lh)}, pemberi pukulan terakhir, mendapat ${a.name} dari sisa bangkai.`,'hero',{x:lh.x,y:lh.y}); }
+    }
+  }
+}
+/* Neko lebih cerdas: ikut tumbuh bersama tuannya dan mundur bila terluka */
+function nekoSmart(m,o){
+  if(G.step%200===0){ const mh=Math.round(110+o.lvl*9); if(m.maxHp<mh){ const r=m.hp/m.maxHp; m.maxHp=mh; m.hp=mh*r; } m.atk=Math.max(m.atk,10+o.lvl*.7); m.def=Math.max(m.def||0,o.lvl*.4); }
+  if(m.flags.nekoRest&&G.step<m.flags.nekoRest){
+    if(G.step%10===0) m.hp=Math.min(m.maxHp,m.hp+m.maxHp*.03);
+    const tx=o.x+(o.flip?14:-14), ty=o.y+4; m.task=null;
+    if(dist(m.x,m.y,tx,ty)>10){ if(!m.path.length||G.step%8===0) m.path=[{x:tx,y:ty}]; followPath(m); } else { m.path=[]; m.moving=false; }
+    if(G.step%60===0) FX_QUEUE.push({k:'say',x:m.x,y:m.y-16,t:30,s:'Nya…'});
+    return true;
+  }
+  if(m.hp<m.maxHp*.35){ m.flags.nekoRest=G.step+Math.round(DAY*.15); m.task=null; m.path=[]; FX_QUEUE.push({k:'say',x:m.x,y:m.y-16,t:40,s:'Nyaa! Mundur!'}); return true; }
+  // jangan ikut memukul monster raksasa; lindungi tuan dari monster kecil
+  if(m.task&&m.task.k==='fight'){ const e=U(m.task.target); if(e&&e.race==='monster'&&bigMon(e)){ const small=nearest(o.x,o.y,80,v=>isHostile(m,v)&&v.race==='monster'&&!bigMon(v)); if(small) m.task={k:'fight',target:small.id}; } }
+  return false;
+}
+
+/* serangan terkoordinasi: aliansi menembus zirah & saling melindungi */
+function allyMod(v,src,amt){
+  if(src.ally&&v.race==='monster'){ const al=allyOf(src); if(al&&al.target===v.id&&al.state==='attack'){ const arm=(v.def+(MON[v.mk].armor||0))*.5; return amt*(al.mult||1.3)+arm*.6; } }
+  if(v.ally&&src.race==='monster'){ const al=allyOf(v); if(al&&al.target===src.id&&al.state==='attack') return amt*.75; }
+  return amt;
+}
+
+const ALLY_MIN=.15;
+function allyRatio(us,m){ const p=us.reduce((s,u)=>s+(u.atk+wAtk(u.weapon)*.8)*(u.maxHp+armorDef(u.armorItem)*6),0); const def=MON[m.mk]; return p*1.3/((m.maxHp)*(def.atk)); }
 
 /* ================= SPRITE PIKSEL ================= */
 
@@ -5443,6 +5692,14 @@ function bldSprite(b){
     R(x+9,y-2,12,5,'#6a5a4a'); R(x+10,y-1,10,3,'#7ab8e0'); R(x+11,y-1,4,1,'#c8e8ff');
     for(let i=0;i<3;i++){ R(x+11+i*3,y-6-i,1,3,'#e8eef6'); R(x+12+i*3,y-9-i,1,2,'#e8eef6'); }
     R(x-14,y-9,4,3,'#3a4a6a'); wins.push([x-14,y-9,4,3]);
+  } else if(b.type==='lelang'){
+    const x=W/2, y=base-2;
+    R(x-28,y-20,56,22,'#d8c8a0'); for(let yy=y-20;yy<y+2;yy+=4) R(x-28,yy,56,1,'#c0b088');
+    for(const cx of [-24,-12,8,20]){ R(x+cx,y-20,4,22,'#f0e6d0'); R(x+cx+3,y-20,1,22,'#b8a888'); }
+    R(x-31,y-23,62,3,'#8a6a3a'); for(let i=0;i<8;i++) R(x-29+i*3.5,y-24-i,58-i*7,1,i%2?'#6a2a4a':'#5a2240');
+    R(x-6,y-12,12,14,'#3a2616'); R(x-6,y-12,12,1,'#e3b75e');
+    R(x-5,y-36,10,6,'#e3b75e'); R(x-4,y-35,8,4,'#5a2240'); R(x-3,y-34,4,2,'#d8c8a0'); R(x+1,y-33,1,2,'#8a6a3a');
+    wins.push([x-18,y-14,4,6],[x+14,y-14,4,6]); R(x-18,y-14,4,6,'#3a4a6a'); R(x+14,y-14,4,6,'#3a4a6a');
   } else if(b.type==='lisensi'){
     const x=W/2, y=base-2;
     R(x-28,y-18,56,20,stone); for(let yy=y-18;yy<y+2;yy+=3) for(let xx=x-28+(yy%6?0:3);xx<x+28;xx+=6) R(xx,yy,1,3,shade(stone,-.2));
@@ -5685,10 +5942,12 @@ function drawWorld(){
         g.save(); if(u.flip){ g.translate(Math.round(it.x)*2,0); g.scale(-1,1); } g.drawImage(ms,Math.round(it.x)-FX*sc,Math.round(it.y)-FY*sc,ms.width*sc,ms.height*sc); g.drawImage(spr,Math.round(it.x)-FX,Math.round(it.y)-FY-9); g.restore(); continue; }
       g.save();
       if(u.flip){ g.translate(Math.round(it.x)*2,0); g.scale(-1,1); }
+      if(u.flags.haul&&u.flags.haul.phase==='back'){ const hm=MON[u.flags.haul.mk]; drawLying(g,monSprite({k:hm.k,c:hm.c,race:hm.race,job:hm.job,eye:hm.eye},0),it.x+(u.flip?16:-16),it.y,u.flip,0); }
       if(u.hq&&G.hv){ const gq=G.hv.groups.find(x=>x.id===u.hq); if(gq&&gq.carcass&&gq.leader===u.id){ const cm=MON[gq.carcass.mk]; drawLying(g,monSprite({k:cm.k,c:cm.c,race:cm.race,job:cm.job,eye:cm.eye},0),it.x+(u.flip?14:-14),it.y,u.flip,0); } }
       { const V=u.variant&&VARIANTS[u.variant]; const vs=V&&V.tint?tintSprite(spr,V.tint,'V|'+u.mk+'|'+u.variant+'|'+fr):spr; const sc=(u.race==='monster'&&MON[u.mk]&&MON[u.mk].sc||1)*(V&&V.scale||1);
         if(sc!==1) g.drawImage(vs,Math.round(it.x)-FX*sc,Math.round(it.y)-FY*sc,vs.width*sc,vs.height*sc); else g.drawImage(vs,Math.round(it.x)-FX,Math.round(it.y)-FY); }
       g.restore();
+      if(u.ally){ const al=allyOf(u); if(al){ const bx=Math.round(it.x)+3, by=Math.round(it.y)-40; g.fillStyle='#4a3020'; g.fillRect(bx,by,1,9); g.fillStyle=al.color; g.fillRect(bx+1,by,5,4); g.fillStyle='#1a1410'; g.fillRect(bx+3,by+1,1,2); } }
       if(u.hq){ const qx=Math.round(it.x)-2, qy=Math.round(it.y)-37; g.fillStyle='#f0e0b0'; g.fillRect(qx,qy,5,6); g.fillStyle='#8a5a2a'; g.fillRect(qx,qy,5,1); g.fillRect(qx,qy+5,5,1); g.fillStyle='#c0302a'; g.fillRect(qx+2,qy+1,1,2); g.fillRect(qx+2,qy+4,1,1); }
       if(u.isekai&&fr%3===0){ g.fillStyle='#8ad8ff'; g.fillRect(Math.round(it.x)+5,Math.round(it.y)-29,1,1); }
       if((u.corrupt||0)>=50&&fr%2===0){ g.fillStyle='rgba(150,70,220,.85)'; g.fillRect(Math.round(it.x)-1,Math.round(it.y)-(u.mounted?34:27),2,2); }
@@ -6512,10 +6771,10 @@ function dreamClick(e){
 const PSTATE={rest:'Beristirahat di kota',go:'Dalam perjalanan',hunt:'Berburu',in:'Di dalam dungeon',back:'Pulang'};
 function partyTabHtml(){
   const ps=G.parties.filter(p=>p.members.some(id=>U(id)));
-  if(!ps.length) return hvGroupsHtml()+'<p class="empty">Belum ada party. Petualang membentuk party setelah Balai Guild berdiri.</p>';
+  if(!ps.length) return allyHtml()+hvGroupsHtml()+'<p class="empty">Belum ada party. Petualang membentuk party setelah Balai Guild berdiri.</p>';
   const tgtName=p=>{ if(p.state==='rest') return ''; const t=p.plan==='dungeon'?G.dungeons.find(d=>d.id===p.target):p.plan==='den'?(G.dens||[]).find(d=>d.id===p.target):G.nests.find(n=>n.id===p.target); return t?` · ${esc(t.name)}`:''; };
   ps.sort((a,b)=>(b.state!=='rest')-(a.state!=='rest')||b.record.kills-a.record.kills);
-  return hvGroupsHtml()+`<p class="sub" style="margin:0 0 8px">${ps.length} party · maksimal 5 anggota · kepercayaan naik tiap petualangan bersama</p><div class="list">${ps.map(p=>{ const t=TN(p.town); const mem=p.members.map(U).filter(Boolean); const L=U(p.leader);
+  return allyHtml()+hvGroupsHtml()+`<p class="sub" style="margin:0 0 8px">${ps.length} party · maksimal 5 anggota · kepercayaan naik tiap petualangan bersama</p><div class="list">${ps.map(p=>{ const t=TN(p.town); const mem=p.members.map(U).filter(Boolean); const L=U(p.leader);
     return `<div class="card"><h3>${esc(p.name)} <small class="sub">${p.solo?'petualang solo · ':''}${t?esc(t.name):''}</small></h3>
     <div class="sub" style="color:${p.state==='rest'?'var(--mute)':'var(--dun)'}">${PSTATE[p.state]||p.state}${tgtName(p)}${p.orders?' · mendapat petunjuk dari mimpi':''}</div>
     <div class="list" style="gap:3px">${mem.map(m=>{ const tr=Math.round(p.trust[m.id]||0); return `<div class="row" style="justify-content:space-between;flex-wrap:nowrap"><span>${m.id===p.leader?'♛ ':''}${personLink(m.id)} <small class="sub">Lv ${m.lvl}${m.revealed?' · '+esc(BERKAT[m.b].n):''}${m.isekai?' · dunia lain':''}${petsOf(m).length?' · '+petsOf(m).length+' beast':''}${p.out&&!p.out.includes(m.id)&&p.state!=='rest'?' · tinggal':''}</small></span><span style="display:flex;align-items:center;gap:4px;flex:0 0 auto"><small class="sub">percaya</small><span class="bar" style="width:46px"><i style="width:${tr}%;background:${tr>=60?'#7fc98a':tr<30?'#e0645a':'#e3b75e'}"></i></span></span></div>`; }).join('')}</div>
@@ -6562,7 +6821,7 @@ function unitExtraHtml(u){
   const p=partyOf(u); if(p) h+=`<dt>Party</dt><dd><span class="link" data-ptab="1">${esc(p.name)}</span>${p.leader===u.id?' · pemimpin':''} · percaya ${Math.round(p.trust[u.id]||0)}</dd>`;
   if(u.dungeonLord){ const d=G.dungeons.find(x=>x.id===u.dungeonLord); h+=`<dt>Takhta</dt><dd style="color:#ff9aa8">Raja Iblis ${d?esc(d.name):''}</dd>`; }
   if(u.jobOverride) h+=`<dt>Pekerjaan pilihan</dt><dd>${esc((JOB_OPTS.find(j=>j[0]===u.jobOverride)||[0,u.jobOverride])[1])}</dd>`;
-  h+=unitExtra6(u)+unitExtra8(u);
+  h+=unitExtra6(u)+unitExtra8(u)+unitExtra9(u);
   if(u.faithVoice) h+=`<dt>Mendengar suaramu</dt><dd>${u.faithVoice} kali</dd>`;
   if(u.flags.murder&&U(u.flags.murder.target)) h+=`<dt>Niat gelap</dt><dd style="color:#f0a0b0">ingin menyingkirkan ${personLink(u.flags.murder.target)}</dd>`;
   if(u.flags.rebel) h+=`<dt>Rahasia</dt><dd style="color:#f0a0b0">menghimpun pemberontak</dd>`;
@@ -6847,9 +7106,38 @@ function initUI5(){
   $('dvx').addEventListener('click',closeDV);
   $('pbody').addEventListener('click',e=>{ const v=e.target.closest('[data-dvp]'); if(v){ openDV(+v.dataset.dvp); } });
 }
+
+/* ---------- UI aliansi perburuan & balai lelang ---------- */
+function allyHtml(){
+  const als=(G.alliances||[]); const live=als.filter(a=>a.state!=='done'); const log=G.allyLog||[];
+  if(!live.length&&!log.length) return '';
+  let h=`<div class="card"><h3>Aliansi Perburuan</h3><p class="sub" style="margin:0">Terbentuk saat monster peringkat S/SS mulai memakan korban. Tiap kerajaan tetangga mengirim maksimal 10 petarung terkuatnya, mereka berkumpul dulu lalu menyerang bersamaan.</p>`;
+  for(const al of live){ const m=U(al.target), def=MON[al.mk]; const mem=allyMembers(al);
+    const by={}; for(const u of mem){ const key=isHV(u)?'Hunter Village':(K(u.kingdom)?.name||'?'); (by[key]=by[key]||[]).push(u); }
+    h+=`<div style="border-left:3px solid ${al.color};padding-left:8px;margin:8px 0"><div><b>Target: ${esc(def.n)}</b> (${def.rank}) · ${m&&!m.dead?`HP ${Math.round(m.hp)}/${m.maxHp} · ${m.kills||0} korban`:'—'}</div>
+      <div class="sub">${al.state==='gather'?`Berkumpul di titik kumpul (${mem.filter(u=>dist(u.x,u.y,al.rx,al.ry)<60).length}/${mem.length} tiba)`:'Menyerang bersamaan!'}${al.dead.length?` · gugur: ${al.dead.map(esc).join(', ')}`:''}</div>
+      ${Object.entries(by).map(([k,us])=>`<div class="sub">${esc(k)} (${us.length}): ${us.sort((a,b)=>b.lvl-a.lvl).map(u=>`${personLink(u.id)} Lv${u.lvl}`).join(', ')}</div>`).join('')}
+      ${m&&!m.dead?`<div class="row"><button class="btn" data-allyfocus="${al.id}">Lihat lokasi</button></div>`:''}</div>`; }
+  const last=als.filter(a=>a.auction).slice(-1)[0];
+  if(last){ const w=U(last.auction.winner); h+=`<div class="sub" style="margin-top:6px">Lelang terakhir di ${esc(BLD.lelang.n)} ${esc(last.auction.where)}: <b>${esc(last.auction.item)}</b> (+${last.auction.def}) → ${w?personLink(w.id):'-'}${last.auction.price?` · ${last.auction.price} emas · ${last.auction.bidders} penawar`:''}</div>`; }
+  if(log.length) h+=`<details style="margin-top:6px"><summary class="sub">Riwayat aliansi (${log.length})</summary>${log.map(s=>`<div class="sub">${esc(s)}</div>`).join('')}</details>`;
+  return h+'</div>';
+}
+function unitExtra9(u){
+  let h=''; const al=allyOf(u);
+  if(al) h+=`<dt>Aliansi</dt><dd>Memburu ${esc(MON[al.mk].n)} · ${al.state==='gather'?'berkumpul':'menyerang'}${u.flags.allyRest?' · mundur memulihkan diri':''}</dd>`;
+  if(u.flags.allyWins) h+=`<dt>Perburuan aliansi</dt><dd>${u.flags.allyWins} kemenangan</dd>`;
+  if(u.flags.haul) h+=`<dt>Tugas Tamer</dt><dd>${u.flags.haul.phase==='go'?'Menjemput':'Menyeret'} bangkai ${esc(MON[u.flags.haul.mk].n)} ke ${esc(BLD.lelang.n)}</dd>`;
+  return h;
+}
+function initUI6(){
+  $('pbody').addEventListener('click',e=>{ const b=e.target.closest('[data-allyfocus]'); if(!b) return; const al=(G.alliances||[]).find(a=>a.id===+b.dataset.allyfocus); const m=al&&U(al.target); if(m){ centerOn(m.x,m.y,Math.max(R_.cam.z,2.4)); UI.follow=false; } });
+}
+
 initUI();
 initUI2();
 initUI3();
 initUI5();
+initUI6();
 
 </script>
