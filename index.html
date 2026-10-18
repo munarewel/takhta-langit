@@ -1884,6 +1884,7 @@ function raiding(u){ return u.flags.raid&&G.step<u.flags.raid; }
 function inTownZone(x,y){ for(const t of G.towns){ if(dist(x/TS,y/TS,t.cx+1,t.cy+1)<t.R+1.5) return true; } return false; }
 function stepMonster(u){
   if(u.mk==='superKong') kongRage(u);
+  if(u.mk==='elemSlime') elemShift(u);
   if(u.flags.sea&&!u.tamer){ stepSea(u); return; }
   fxTick(u); if(u.dead) return;
   if(u.tamer){ stepPet(u); return; }
@@ -2525,7 +2526,7 @@ function basicAttack(u,e,rng){
   FX_QUEUE.push(ranged?{k:'bolt',x:u.x,y:u.y-10,x2:e.x,y2:e.y-8,t:9,c:col,orb:!!(def&&def.shot)}:{k:'slash',x:e.x,y:e.y-10,t:9,flip:u.flip});
   if(def&&def.splash){ aoe(u,e.x,e.y,def.splash,dmg,def.shot); }
   else { const d=damage(e,dmg,u); if(def&&def.drain&&d) u.hp=Math.min(u.maxHp,u.hp+d*def.drain); if(!def&&d) enchOnHit(u,e,d); }
-  const oh=(u.variant&&VARIANTS[u.variant].onHit)||(def&&def.onHit); if(oh&&!e.dead&&rnd()<oh.p) applyFx(e,oh.k,oh.k==='slow'?90:150,u);
+  const oh=(u.flags&&u.flags.elemHit)||(u.variant&&VARIANTS[u.variant].onHit)||(def&&def.onHit); if(oh&&!e.dead&&rnd()<oh.p) applyFx(e,oh.k,oh.k==='slow'?90:150,u);
   // penyihir manusia memberi efek sesuai elemen
   if(!def&&!e.dead&&ranged){ const bn=BERKAT[u.b].n; if(/Api/.test(bn)&&rnd()<.3) applyFx(e,'burn',120,u); else if(/Air|Es/.test(bn)&&rnd()<.3) applyFx(e,'slow',90,u); else if(/Hitam|Necro/.test(bn)&&rnd()<.25) applyFx(e,'curse',120,u); }
   if(u.race!=='monster'&&roleOf(u)==='penyembuh'&&G.step%3===0){ const hurt=near(u.x,u.y,60,v=>sideOf(v)==='H'&&v.race!=='monster'&&v.hp<v.maxHp*.7&&!v.downed); const h=hurt.sort((a,b)=>a.hp/a.maxHp-b.hp/b.maxHp)[0]; if(h){ h.hp=Math.min(h.maxHp,h.hp+u.atk*.8); FX_QUEUE.push({k:'lvl',x:h.x,y:h.y,t:18}); for(const k of ['burn','poison','curse']) if(h.fx&&h.fx[k]) delete h.fx[k]; } }
@@ -3755,6 +3756,7 @@ function legendSlain(m,killer){
   const t=TN(killer.town); if(t) addIngr(t,LEGEND_DROP[m.mk]||`Daging ${def.n}`,3);
   log(`Legenda tumbang! ${who} mengalahkan ${def.n}${n?` di ${n.name}`:''}. Bard di seluruh negeri mulai menyanyikan kisahnya.`,'hero',{x:m.x,y:m.y});
   G.legendLog.unshift(`Th ${yearInt()}: ${def.n} dikalahkan ${who}`); if(G.legendLog.length>30) G.legendLog.pop();
+  if(m.mk==='chaoticDragon') chaosSlain(m,killer);
 }
 
 /* ---------- monster laut ---------- */
@@ -4034,11 +4036,11 @@ function guildRecruit(t,people){
 
 /* ---------- harian & tahunan ---------- */
 function daily6(){
-  legendDaily(); allianceDaily(); daily10();
+  daily11(); legendDaily(); allianceDaily(); daily10();
   for(const t of G.towns){ const people=G.units.filter(u=>!u.dead&&u.town===t.id&&u.race!=='monster'); pantryDaily(t,people); armorDaily(t); shopsDaily(t,people); guildRecruit(t,people); soloParties(t); }
   for(const u of G.units) if(!u.dead&&u.race!=='monster'&&tamerInfo(u)&&tamerInfo(u).share) recalcStats(u);
 }
-function yearly6(){ yearly10(); legendYearly(); seaYearly(); recipesSpread(); secessionYearly(); }
+function yearly6(){ yearly10(); yearly11(); legendYearly(); seaYearly(); recipesSpread(); secessionYearly(); }
 
 /* =====================================================================
    SIMULASI 7: rakyat memisahkan diri & mendirikan kerajaan baru,
@@ -4318,7 +4320,7 @@ function foundHunterVillage(){
 function legendNear(px,py,r){ return G.units.find(m=>!m.dead&&m.race==='monster'&&!m.tamer&&MON[m.mk]&&MON[m.mk].legend&&!MON[m.mk].sea&&dist(m.x,m.y,px,py)<r*TS)||null; }
 function hvQuestsDaily(t){
   const hv=G.hv; hv.quests=hv.quests.filter(q=>!q.done);
-  if(hv.quests.filter(q=>!q.taken).length>=4) return;
+  if(hv.quests.filter(q=>!q.taken).length>=6) return;
   const r=rnd(); let q=null;
   const hs=G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='hunter'); const avg=hs.length?hs.reduce((s,u)=>s+u.lvl,0)/hs.length:1; const maxRk=4+(avg>=14?1:0)+(avg>=26?1:0)+(avg>=36?1:0);
   if(r<.35&&hs.length>=3){ const big=G.units.filter(m=>!m.dead&&m.race==='monster'&&!m.tamer&&!m.flags.warband&&!m.flags.den&&!m.flags.sea&&!m.inside&&!(MON[m.mk]&&MON[m.mk].demon)&&RANK_ORDER.indexOf(MON[m.mk].rank)>=4&&RANK_ORDER.indexOf(MON[m.mk].rank)<=maxRk&&!legendNear(m.x,m.y,30)&&dist(m.x,m.y,(t.cx+1)*TS,(t.cy+1)*TS)<130*TS&&!hv.quests.some(o=>o.target===m.id));
@@ -4335,10 +4337,10 @@ function hvFormGroups(t){
   const free=G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='hunter'&&isAdult(u)&&!u.hq&&!u.sick&&!u.downed&&!u.patient&&!u.possessed&&u.hp>u.maxHp*.65);
   for(const q of hv.quests){
     if(q.type==='hunt'){ const m=U(q.target); if(!m||m.dead){ q.done=true; continue; } }
-    const elig=free.filter(u=>hrankAllowed(u,q));
-    if(q.taken||elig.length<(q.type==='hunt'?3:2)) continue;
+    const need=hrankNeed(q); const pros=free.filter(u=>hrank(u)>=need); const elig=free.filter(u=>hrank(u)>=need-1);
+    if(q.taken||!pros.length||elig.length<(q.type==='hunt'?3:2)) continue;
     const n=Math.min(q.size||4,4,elig.length);
-    const first=elig.splice(ri(0,elig.length-1),1)[0]; const mem=[first];
+    const first=pros[ri(0,pros.length-1)]; elig.splice(elig.indexOf(first),1); const mem=[first];
     while(mem.length<n&&elig.length){ elig.sort((a,b)=>((a.flags.lastMates||[]).includes(first.id)?1:0)-((b.flags.lastMates||[]).includes(first.id)?1:0)+rnd()*.8-.4); mem.push(elig.shift()); }
     for(const u of mem){ const i=free.indexOf(u); if(i>=0) free.splice(i,1); }
     const g={id:newId(),q:q.id,members:mem.map(u=>u.id),leader:first.id,state:'go',age:0,kills:0,carcass:null};
@@ -4514,7 +4516,8 @@ function hvDaily(){
   const t=hvTown(), k=hvKing(); if(!t||!k||!k.alive) return;
   k.tax=0;
   { const v=U(hv.vet); if(!v||v.dead) vetSuccession(U(hv.heir)); }
-  hvQuestsDaily(t); hvFormGroups(t); hvCraftDaily(t); hvLicenseDaily(t);
+  hvQuestsDaily(t); hvQuestsDaily(t); hvFormGroups(t);
+  for(const u of G.units) if(!u.dead&&u.town===t.id&&u.career==='hunter'&&!u.hq&&hrank(u)<=1) gainXp(u,4); hvCraftDaily(t); hvLicenseDaily(t);
   const hunters=G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='hunter').length;
   t.stock.food+=hunters*.4;
   hvFund(hunters*1.5);
@@ -4574,7 +4577,7 @@ BLD.lelang={n:'Balai Lelang',w:8,h:6,work:1200,wood:30,stone:30};
 const ALLY_COLORS=['#e8c050','#7fc8ff','#e86a5a','#9ad06a','#d090f0'];
 function allyOf(u){ return u&&u.ally?(G.alliances||[]).find(a=>a.id===u.ally&&a.state!=='done'):null; }
 function allyMembers(al){ return al.members.map(U).filter(v=>v&&!v.dead); }
-function bigMon(m){ const r=MON[m.mk]&&MON[m.mk].rank; return r==='S'||r==='SS'; }
+function bigMon(m){ const r=MON[m.mk]&&MON[m.mk].rank; return r==='S'||r==='SS'||r==='SSS'; }
 function allyEligible(u){
   if(u.dead||u.race==='monster'||!isAdult(u)||u.captive||u.possessed||u.downed||u.patient||u.dungeonLord||u.flags.infil) return false;
   if(u.ally||u.hq) return false;
@@ -4894,10 +4897,11 @@ function hrankAllowed(u,q){
   return true;
 }
 function hrankGain(u,q){
-  const pts={gather:1,ekspedisi:1,slay:2,hunt:3}[q.type]||1;
+  let pts={gather:1,ekspedisi:1,slay:2,hunt:3}[q.type]||1;
+  if(hrank(u)<hrankNeed(q)){ pts+=2; gainXp(u,25); if(rnd()<.3) hist(u,'ikut misi peringkat lebih tinggi bersama senior'); }
   u.flags.hpts=(u.flags.hpts||0)+pts;
   const r=hrank(u); if(r>=3) return;
-  const need=[[4,6],[10,12],[22,20]][r];
+  const need=[[4,3],[10,9],[20,16]][r];
   if(u.flags.hpts>=need[0]&&u.lvl>=need[1]){ u.flags.hrank=r+1; hist(u,`naik ke ${HRANK[r+1]} di Guild Hall`);
     log(`Guild Hall Hunter Village: ${fullName(u)} naik ke ${HRANK[r+1]}.${r+1===3?' Kini ia boleh menerima misi monster S dan SS.':''}`,r+1>=2?'hero':'life',{x:u.x,y:u.y}); }
 }
@@ -4978,6 +4982,58 @@ function finalSlash(u,e){
 function yearly10(){ hvVeteranYearly();
   const y=yearInt(); if(y>0&&y%10===0){ G.annals=G.annals||[]; const d=y-10; if(!G.annals.some(a=>a.d===d)){ const es=G.chron.filter(c=>c.y>=d&&c.y<y&&(c.kind==='hero'||c.kind==='war')).slice(0,12).reverse(); G.annals.push({d,p:es.length?es.map(c=>`Th ${c.y}: ${c.text}`):['Dekade yang tenang. Tidak banyak yang patut dicatat.']}); } } }
 function daily10(){ libraryDaily(); for(const u of G.units) if(!u.dead&&u.b===BIDX('Pahlawan')) zenithCheck(u); }
+
+/* =====================================================================
+   SIMULASI 11: monster batch 11 + Chaotic Dragon (SSS)
+   ===================================================================== */
+RANK_ORDER.push('SSS');
+Object.assign(MON,{
+  bee:{n:'Bee',k:'bee',c:'#e8c030',eye:'#2a2a2a',rank:'E',hp:30,atk:6,spd:1.5,xp:12,bounty:4,beast:1,onHit:{k:'poison',p:.2},d:'Lebah seukuran kepalan tangan. Tak pernah datang sendirian.'},
+  queenBee:{n:'Queen Bee',k:'beeQ',c:'#e8b020',eye:'#c03030',rank:'B',sc:1.5,hp:380,atk:20,spd:1,xp:150,bounty:70,beast:1,onHit:{k:'poison',p:.35},skills:[{k:'summon',what:'bee',n:3,cd:260}],d:'Ratu sarang raksasa. Terus memanggil pasukan lebahnya.'},
+  pickleDragon:{n:'Pickle Dragon',k:'dragonW',c:'#7a9a32',eye:'#fff060',job:'#c8e060',rank:'B',sc:1.15,hp:340,atk:24,spd:1.1,xp:140,bounty:65,beast:1,onHit:{k:'poison',p:.3},skills:[{k:'breath',range:46,dmg:.8,cd:130,fx:'#c8e060',debuff:'poison'}],d:'Naga kecil berkulit bintil seperti acar. Semburannya asam dan berbau tajam.'},
+  greatBear:{n:'Great Bear',k:'bear',c:'#4a3a2a',rank:'A',sc:1.55,hp:640,atk:34,spd:.9,xp:250,bounty:115,beast:1,armor:6,skills:[{k:'cleave',r:22,dmg:1.1,cd:70},{k:'roar',r:50,dur:110,cd:320}],d:'Beruang raksasa penguasa hutan tua. Sekali sapu, tiga orang terlempar.'},
+  agrooBird:{n:'Agroo Bird',k:'agroo',c:'#3a7a8a',eye:'#ff3a2a',rank:'C',hp:120,atk:15,spd:1.4,xp:52,bounty:22,beast:1,skills:[{k:'cleave',r:14,dmg:.9,cd:80}],d:'Burung berkaki panjang berjambul duri yang selalu marah. Mematuk dan menendang apa saja yang bergerak.'},
+  jugglerKangaroo:{n:'Juggler Kangaroo',k:'kangaroo',c:'#b8804a',eye:'#2a2a2a',rank:'B',sc:1.2,hp:300,atk:22,spd:1.4,xp:125,bounty:58,beast:1,ranged:40,shot:'#e8e0c0',d:'Kanguru yang menjuggling batu sambil melompat, lalu melemparnya tepat ke kepala.'},
+  martialTiger:{n:'Martial Tiger',k:'tiger',c:'#e88a2a',eye:'#9aff5a',rank:'A',sc:1.3,hp:560,atk:38,spd:1.4,xp:240,bounty:110,beast:1,armor:5,skills:[{k:'cleave',r:18,dmg:1.25,cd:45}],d:'Harimau yang bertarung dengan kuda-kuda bela diri. Pukulannya beruntun.'},
+  elemSlime:{n:'Elemental Slime',k:'slime',c:'#c060e0',rank:'C',hp:140,atk:13,spd:.9,xp:60,bounty:26,beast:1,d:'Slime yang terus berganti elemen: api, es, petir, racun.'},
+  chaoticDragon:{n:'Chaotic Dragon',k:'dragonE',c:'#140c1c',eye:'#d060ff',rank:'SSS',legend:1,sc:2.3,hp:9000,atk:150,spd:.9,xp:5000,bounty:3000,beast:1,armor:24,regen:.01,onHit:{k:'curse',p:.4},
+    skills:[{k:'breath',range:96,dmg:1.3,cd:80,fx:'#9a3aff',debuff:'curse'},{k:'nova',r:60,dmg:1.2,cd:150,self:1,fx:'#6a1aaa',debuff:'fear'},{k:'roar',r:110,dur:200,cd:240}],
+    d:'Naga hitam pekat berselimut aura ungu. Tiga ribu tahun lalu ia menghancurkan desa Hunter dan Tamer, sampai Arthur the Red Dragon memusnahkannya.'},
+});
+const ELEMS=[{n:'Api',c:'#e8502a',fx:'burn'},{n:'Es',c:'#7fc8ff',fx:'slow'},{n:'Petir',c:'#f0e040',fx:'zap'},{n:'Racun',c:'#8ad04a',fx:'poison'}];
+function elemShift(u){
+  if(u.flags.elemAt&&G.step<u.flags.elemAt) return;
+  const e=ELEMS[ri(0,ELEMS.length-1)]; u.monC=e.c; u.flags.elem=e.n; u.flags.elemHit=e.fx==='zap'?{k:'slow',p:.25}:{k:e.fx,p:.35}; u.flags.elemAt=G.step+ri(300,700);
+}
+LEGEND_LAIR.chaoticDragon={t:['MOUNT'],n:'Jurang Kekacauan'};
+const NEST_ADD11={FOREST:['bee','queenBee','greatBear','agrooBird','martialTiger','elemSlime'],GRASS:['bee','agrooBird','jugglerKangaroo','elemSlime'],HILLS:['jugglerKangaroo','pickleDragon','martialTiger'],DESERT:['jugglerKangaroo','pickleDragon'],MOUNT:['pickleDragon','greatBear']};
+FLOOR_POOL[1].push('bee','elemSlime'); FLOOR_POOL[2].push('agrooBird','queenBee'); FLOOR_POOL[3].push('martialTiger','pickleDragon'); GACHA_POOL[2].push('bee','agrooBird'); GACHA_POOL[3].push('queenBee','jugglerKangaroo','pickleDragon','elemSlime'); GACHA_POOL[4].push('greatBear','martialTiger');
+Object.assign(MON_DROP,{bee:'Madu Liar',queenBee:'Royal Jelly',pickleDragon:'Daging Naga Acar',greatBear:'Daging Great Bear',agrooBird:'Daging Agroo Bird',jugglerKangaroo:'Daging Kanguru',martialTiger:'Daging Harimau Silat',elemSlime:'Jeli Elemen'});
+for(const k of Object.keys(MON_DROP)){ const n=MON_DROP[k]; if(MON[k]&&!INGR[n]){ INGR[n]={c:'monster',r:Math.min(4,Math.max(1,Math.floor(RANK_ORDER.indexOf(MON[k].rank)/1.6))),src:'monster'}; INGR_LIST.push(n); } }
+if(typeof MOUNT_BEASTS!=='undefined') MOUNT_BEASTS.push('martialTiger','jugglerKangaroo');
+function worldUpgrade11(){
+  if(G.v11) return; G.v11=1;
+  for(const n of G.nests){ if(n.legend) continue; const tt=tileAt(n.x,n.y); const key=Object.keys(T).find(k=>T[k]===tt); for(const mk of NEST_ADD11[key]||[]) if(!n.pool.includes(mk)&&rnd()<.45) n.pool.push(mk); }
+}
+/* Chaotic Dragon: sangat langka, sekali per dunia */
+function chaosYearly(){
+  const y=yearInt();
+  if(!G.chaos&&y>=35&&rnd()<.03){ const n=placeLair('chaoticDragon',y+ri(1,3)); if(n){ G.chaos={nest:n.id,y}; log(`Para Tamer tua gelisah dan para Hunter berhenti tertawa. Langit di atas ${n.name} berubah ungu. Naskah di perpustakaan pernah memperingatkan hal ini: Chaotic Dragon sedang bangkit.`,'war',{x:(n.x+.5)*TS,y:(n.y+.5)*TS}); } }
+  const m=G.units.find(u=>!u.dead&&u.mk==='chaoticDragon'&&!u.tamer);
+  if(m&&rnd()<.55){ const t=G.towns.slice().sort((a,b)=>dist((a.cx+1)*TS,(a.cy+1)*TS,m.x,m.y)-dist((b.cx+1)*TS,(b.cy+1)*TS,m.x,m.y))[0];
+    if(t){ m.flags.raid=G.step+Math.round(DAY*1.5); m.path=[{x:(t.cx+1)*TS,y:(t.cy+1)*TS}]; t.pendingAlarm={at:G.step+Math.round(DAY*.3),why:'Chaotic Dragon mendekat'}; log(`Chaotic Dragon terbang menuju ${t.name}! Bayangannya menutupi matahari.`,'war',{x:m.x,y:m.y}); } }
+}
+function chaosSlain(m,killer){
+  const n=G.nests.find(x=>x.id===m.nest); if(n) G.nests=G.nests.filter(x=>x!==n);
+  G.chaos=G.chaos||{}; G.chaos.slain=yearInt(); G.chaos.by=killer?fullName(killer):'?';
+  if(killer){ killer.title='Pembantai Naga Kekacauan'; hist(killer,'menumbangkan Chaotic Dragon'); }
+  const arthur=killer&&BERKAT[killer.b]&&BERKAT[killer.b].n==='Hunter & Tamer';
+  log(arthur?`Sejarah terulang! ${fullName(killer)}, sang Hunter & Tamer, menumbangkan Chaotic Dragon persis seperti Arthur tiga ribu tahun lalu. Kisahnya akan ditulis di samping kisah Arthur di setiap perpustakaan.`:`Chaotic Dragon tumbang! ${killer?fullName(killer):'Seseorang'} memberikan pukulan terakhir. Untuk pertama kalinya dalam tiga ribu tahun, langit ungu itu kembali biru.`,'hero',{x:m.x,y:m.y});
+}
+/* peringkat Hunter: anggota satu peringkat di bawah boleh ikut bila dibimbing senior */
+function hrankNeed(q){ if(q.type==='gather'||q.type==='ekspedisi') return 0; if(q.type==='slay') return 1; if(q.type==='hunt'){ const m=U(q.target); const rk=m?RANK_ORDER.indexOf(MON[m.mk].rank):4; return rk>=6?3:2; } return 0; }
+function daily11(){ worldUpgrade11(); }
+function yearly11(){ chaosYearly(); }
 
 /* ================= SPRITE PIKSEL ================= */
 
@@ -5680,7 +5736,7 @@ function drawExtraMon8(P,m,f){
   if(k==='dodo') return drawDodo(P,c,f);
   if(k==='batroww') return drawBatroww(P,c,f,eye);
   if(k==='neko') return drawNeko(P,c,f,m.job||'#c8a050');
-  return false;
+  return drawExtraMon11(P,m,f);
 }
 function drawRaptor(P,c,f,eye,alpha){
   const dk=shade(c,-.35), lt=shade(c,.25), b=f===1||f===3?1:0, la=f===1?-1:f===3?1:0;
@@ -5755,6 +5811,57 @@ function drawNeko(P,c,f,armor){
   P(-2,-11,1,1,'#2a2a2a'); P(1,-11,1,1,'#2a2a2a'); P(0,-10,1,1,'#e88a9a');
   P(-5,-7-b,1,3,c); P(-6,-8-b,1,1,c);
   P(4,-9,1,4,'#c8c8d0'); P(4,-10,1,1,'#e8e8f0');
+}
+
+/* ---------- sprite monster batch 11 ---------- */
+function drawExtraMon11(P,m,f){
+  const k=m.k, c=m.c, eye=m.eye||'#2a2a2a';
+  if(k==='bee'||k==='beeQ') return drawBee(P,c,f,eye,k==='beeQ');
+  if(k==='agroo') return drawAgroo(P,c,f);
+  if(k==='kangaroo') return drawKangaroo(P,c,f,eye);
+  if(k==='tiger') return drawTiger(P,c,f,eye);
+  return false;
+}
+function drawBee(P,c,f,eye,queen){
+  const y=(queen?-14:-11)+(f===1?-1:f===3?1:0), dk='#2a2018', w='rgba(220,240,255,.85)';
+  P(-3,0,6,1,'rgba(0,0,0,.18)');
+  if(f%2===0){ P(-4,y-5,3,3,w); P(1,y-5,3,3,w); if(queen){ P(-6,y-6,4,3,w); P(2,y-6,4,3,w); } } else { P(-5,y-3,3,2,w); P(2,y-3,3,2,w); }
+  const L=queen?9:6;
+  P(-L/2,y-2,L,4,c); for(let i=1;i<L;i+=2) P(-L/2+i,y-2,1,4,dk);
+  P(L/2,y-1,1,2,dk); P(L/2+1,y,1,1,'#1a1a1a');
+  P(-L/2-3,y-2,3,3,dk); P(-L/2-3,y-1,1,1,eye==='#2a2a2a'?'#ff3a3a':eye); P(-L/2-3,y-4,1,2,dk); P(-L/2-1,y-4,1,2,dk);
+  if(queen){ P(-L/2-3,y-6,4,1,'#e3b75e'); P(-L/2-3,y-7,1,1,'#e3b75e'); P(-L/2-1,y-7,1,1,'#e3b75e'); P(-L/2+1,y-7,1,1,'#e3b75e'); }
+}
+function drawAgroo(P,c,f){
+  const la=f===1?-2:f===3?2:0, dk=shade(c,-.3), lt=shade(c,.25);
+  P(-5,0,10,1,'rgba(0,0,0,.22)');
+  P(-2+la,-7,1,7,'#c8a040'); P(1-la,-7,1,7,'#c8a040'); P(-3+la,-1,2,1,'#c8a040'); P(1-la,-1,2,1,'#c8a040');
+  P(-6,-14,9,7,c); P(-5,-9,7,2,lt); P(-9,-13,3,2,dk); P(-10,-12,2,1,dk);
+  P(1,-20,4,7,c); P(2,-23,4,4,c); P(6,-22,4,2,'#e8b030'); P(9,-21,1,1,'#a87020');
+  P(4,-22,2,1,'#ff3a2a'); P(3,-23,3,1,'#1a1a1a');
+  P(1,-26,1,3,dk); P(3,-27,1,4,dk); P(5,-25,1,2,dk);
+  P(-3,-12,4,3,dk);
+}
+function drawKangaroo(P,c,f,eye){
+  const hop=f===1||f===3?-3:0, dk=shade(c,-.25), lt=shade(c,.25);
+  P(-5,0,10,1,'rgba(0,0,0,.2)');
+  P(-4,-3+hop,6,3,dk); P(1,-1+hop,4,1,dk); P(-9,-6+hop,6,2,dk); P(-11,-5+hop,3,1,dk);
+  P(-3,-13+hop,7,10,c); P(-1,-10+hop,4,6,lt);
+  P(1,-19+hop,5,6,c); P(5,-17+hop,3,2,c); P(7,-16+hop,1,1,'#1a1a1a'); P(4,-17+hop,1,1,eye); P(1,-22+hop,1,3,c); P(3,-22+hop,1,3,c);
+  P(3,-12+hop,3,1,dk); P(5,-13+hop,1,1,dk);
+  // bola juggling
+  const t=f%4; const balls=[[6,-25],[9,-21],[3,-27]]; for(let i=0;i<3;i++){ const [bx,by]=balls[(i+t)%3]; P(bx,by+hop,2,2,['#e8e0c0','#d0503a','#5a8ad0'][i]); }
+}
+function drawTiger(P,c,f,eye){
+  const dk='#2a1a10', lt=shade(c,.25), wh='#f4ece0';
+  P(-10,0,20,1,'rgba(0,0,0,.25)');
+  legsQuad(P,[-7,-5,4,6],-5,5,c,f,null);
+  P(-9,-12,16,8,c); P(-8,-12,14,1,lt); P(-7,-5,12,1,wh);
+  for(const x of [-7,-4,-1,2]) { P(x,-12,1,4,dk); P(x+1,-9,1,2,dk); }
+  P(6,-15,7,7,c); P(7,-10,5,2,wh); P(11,-12,2,2,wh); P(12,-12,1,1,'#1a1a1a'); P(9,-13,1,1,eye); P(6,-17,2,2,c); P(11,-17,2,2,c); P(7,-14,1,2,dk); P(9,-16,1,1,dk);
+  P(-12,-12,3,1,c); P(-13,-14,1,3,c); P(-13,-15,1,1,dk);
+  // sabuk silat
+  P(-2,-12,2,8,'#1a1a1a'); P(-3,-5,1,3,'#1a1a1a'); P(0,-5,1,2,'#1a1a1a');
 }
 
 /* =====================================================================
@@ -6152,6 +6259,7 @@ function drawWorld(){
       g.restore();
       if(u.ally){ const al=allyOf(u); if(al){ const bx=Math.round(it.x)+3, by=Math.round(it.y)-40; g.fillStyle='#4a3020'; g.fillRect(bx,by,1,9); g.fillStyle=al.color; g.fillRect(bx+1,by,5,4); g.fillStyle='#1a1410'; g.fillRect(bx+3,by+1,1,2); } }
       if(u.hq){ const qx=Math.round(it.x)-2, qy=Math.round(it.y)-37; g.fillStyle='#f0e0b0'; g.fillRect(qx,qy,5,6); g.fillStyle='#8a5a2a'; g.fillRect(qx,qy,5,1); g.fillRect(qx,qy+5,5,1); g.fillStyle='#c0302a'; g.fillRect(qx+2,qy+1,1,2); g.fillRect(qx+2,qy+4,1,1); }
+      if(u.mk==='chaoticDragon'){ const t0=performance.now()/120; for(let i=0;i<10;i++){ const a=t0*.3+i*.63, r=18+Math.sin(t0+i)*6; g.fillStyle=i%2?'rgba(170,70,255,.75)':'rgba(90,20,160,.6)'; g.fillRect(Math.round(it.x+Math.cos(a)*r*1.4),Math.round(it.y-22+Math.sin(a)*r),2,2); } }
       if(u.isekai&&fr%3===0){ g.fillStyle='#8ad8ff'; g.fillRect(Math.round(it.x)+5,Math.round(it.y)-29,1,1); }
       if((u.corrupt||0)>=50&&fr%2===0){ g.fillStyle='rgba(150,70,220,.85)'; g.fillRect(Math.round(it.x)-1,Math.round(it.y)-(u.mounted?34:27),2,2); }
       if(u.tamer){ const o=U(u.tamer); const k=o&&K(o.kingdom); g.fillStyle=k?k.color:'#7fc98a'; g.fillRect(Math.round(it.x)-2,Math.round(it.y)-3,4,1); }
