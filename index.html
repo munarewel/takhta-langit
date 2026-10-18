@@ -149,6 +149,7 @@ select{background:var(--vault-2);border:1px solid var(--line);border-radius:7px;
       <button data-s="80" aria-pressed="false">80×</button>
       <button id="btnMenu" class="mnu" aria-expanded="false">Menu</button>
       <button id="btnSkip" class="mi">Lompat Waktu</button>
+      <button id="btnQ" class="mi">Grafik: Normal</button>
       <button id="btnSave" class="mi">Simpan</button>
       <button id="btnLoad" class="mi">Muat</button>
       <button id="btnNew" class="mi">Dunia Baru</button>
@@ -5518,21 +5519,31 @@ function drawTileTree(g,x,y){
   if(pine){ R(px,py-1,1,3,'#5a3a1e'); for(let k=0;k<6;k++){ const w=Math.max(1,k); R(px-w+1,py-8+k,w*2-1,1,k<2?'#4a8a4a':k<4?'#2f6a35':'#285c2e'); } }
   else { R(px-1,py-2,2,4,'#6a4a2a'); for(let yy=-5;yy<=4;yy++){ const w=Math.round(Math.sqrt(1-(yy/5.5)**2)*5); R(px-w,py-7+yy,w*2,1,yy<-2?'#5aa04a':yy>2?'#2f6a35':'#418a40'); } R(px-3,py-11,2,1,'#7cc860'); }
 }
+const CHK=32;
+function chunkCanvas(cx,cy){
+  R_.chunks=R_.chunks||{}; const k=cx+','+cy; let c=R_.chunks[k];
+  if(!c){ c=document.createElement('canvas'); c.width=CHK*TS; c.height=CHK*TS; R_.chunks[k]=c; }
+  return c;
+}
+function drawChunkRegion(cx,cy,x0,y0,x1,y1){
+  const c=chunkCanvas(cx,cy), g=c.getContext('2d');
+  g.save(); g.translate(-cx*CHK*TS,-cy*CHK*TS);
+  g.beginPath(); g.rect(Math.max(x0,cx*CHK)*TS,Math.max(y0,cy*CHK)*TS,(Math.min(x1,cx*CHK+CHK-1)-Math.max(x0,cx*CHK)+1)*TS,(Math.min(y1,cy*CHK+CHK-1)-Math.max(y0,cy*CHK)+1)*TS); g.clip();
+  for(let y=y0-1;y<=y1+1;y++) for(let x=x0-1;x<=x1+1;x++) drawTileBase(g,x,y);
+  for(let y=y0-1;y<=y1+3;y++) for(let x=x0-2;x<=x1+2;x++) drawTileTree(g,x,y);
+  g.restore();
+}
 function renderTerrain(){
-  if(!R_.terrain){ R_.terrain=document.createElement('canvas'); R_.terrain.width=MW*TS; R_.terrain.height=MH*TS; }
-  const g=R_.terrain.getContext('2d');
-  for(let y=0;y<MH;y++)for(let x=0;x<MW;x++) drawTileBase(g,x,y);
-  for(let y=0;y<MH;y++)for(let x=0;x<MW;x++) drawTileTree(g,x,y);
-  G.dirty.terrain=false; G.dirtyTiles=[]; R_.lastTerrain=performance.now();
+  R_.terrain=true;
+  const nx=Math.ceil(MW/CHK), ny=Math.ceil(MH/CHK);
+  for(let cy=0;cy<ny;cy++) for(let cx=0;cx<nx;cx++) drawChunkRegion(cx,cy,cx*CHK,cy*CHK,cx*CHK+CHK-1,cy*CHK+CHK-1);
+  G.dirty.terrain=false; G.dirtyTiles=[]; R_.tileQ=[]; R_.lastTerrain=performance.now();
 }
 function renderTerrainTiles(list){
   if(!R_.terrain){ renderTerrain(); return; }
-  const g=R_.terrain.getContext('2d');
   for(const [tx,ty] of list){
-    g.save(); g.beginPath(); g.rect((tx-1)*TS,(ty-2)*TS,TS*3,TS*3); g.clip();
-    for(let y=ty-2;y<=ty+1;y++) for(let x=tx-2;x<=tx+2;x++) drawTileBase(g,x,y);
-    for(let y=ty-2;y<=ty+3;y++) for(let x=tx-2;x<=tx+2;x++) drawTileTree(g,x,y);
-    g.restore();
+    const x0=tx-1, y0=ty-2, x1=tx+1, y1=ty;
+    for(let cy=Math.floor(Math.max(0,y0)/CHK);cy<=Math.floor(Math.min(MH-1,y1)/CHK);cy++) for(let cx=Math.floor(Math.max(0,x0)/CHK);cx<=Math.floor(Math.min(MW-1,x1)/CHK);cx++) drawChunkRegion(cx,cy,x0,y0,x1,y1);
   }
 }
 const CROP_COL={gandum:['#7ac04a','#5a9a3a','#d8b040','#f0d060'],kubis:['#7ac04a','#4a9a4a','#5ab05a','#9ad07a'],labu:['#7ac04a','#4a8a3a','#e07a2a','#f0a040'],jagung:['#7ac04a','#4a9a3a','#c8b040','#e8d060']};
@@ -5578,13 +5589,14 @@ function drawWorld(){
   const cv=R_.cv, g=R_.ctx, dpr=R_.dpr, cam=R_.cam;
   const W=cv.width/dpr, H=cv.height/dpr, z=cam.z;
   if(G.dirtyTiles&&G.dirtyTiles.length){ if(G.dirtyTiles.length>400) G.dirty.terrain=true; else (R_.tileQ=R_.tileQ||[]).push(...G.dirtyTiles); G.dirtyTiles.length=0; }
-  if(R_.tileQ&&R_.tileQ.length){ renderTerrainTiles(R_.tileQ.splice(0,60)); }
+  if(R_.tileQ&&R_.tileQ.length&&performance.now()-(R_.lastTileDraw||0)>400){ R_.lastTileDraw=performance.now(); renderTerrainTiles(R_.tileQ.splice(0,60)); }
   if(G.dirty.terrain&&performance.now()-R_.lastTerrain>2500) renderTerrain();
   g.setTransform(dpr,0,0,dpr,0,0); g.imageSmoothingEnabled=false;
   g.fillStyle='#1d3a5f'; g.fillRect(0,0,W,H);
   // medan
   g.setTransform(dpr*z,0,0,dpr*z,-cam.x*z*dpr,-cam.y*z*dpr);
-  g.drawImage(R_.terrain,0,0);
+  { const nx=Math.ceil(MW/CHK), ny=Math.ceil(MH/CHK), cs=CHK*TS; const c0=Math.max(0,Math.floor(cam.x/cs)), c1=Math.min(nx-1,Math.floor((cam.x+W/z)/cs)), r0=Math.max(0,Math.floor(cam.y/cs)), r1=Math.min(ny-1,Math.floor((cam.y+H/z)/cs));
+    for(let cy=r0;cy<=r1;cy++) for(let cx=c0;cx<=c1;cx++) g.drawImage(chunkCanvas(cx,cy),cx*cs,cy*cs); }
   const vx0=cam.x-40, vy0=cam.y-60, vx1=cam.x+W/z+40, vy1=cam.y+H/z+80;
   const vis=(x,y)=>x>vx0&&x<vx1&&y>vy0&&y<vy1;
   // ladang & kandang
@@ -6157,7 +6169,8 @@ function stats(){
 }
 let statT=0, autoT=0;
 function frame(t){
-  const dt=Math.min(100,t-lastT||16); lastT=t;
+  const rawDt=t-lastT; const dt=Math.min(100,rawDt||16); lastT=t;
+  if(!UI.skip&&rawDt>0&&rawDt<3000){ UI.fpsAcc=(UI.fpsAcc||0)+rawDt; UI.fpsN=(UI.fpsN||0)+1; if(UI.fpsAcc>3000){ const avg=UI.fpsAcc/UI.fpsN; UI.fps=Math.round(1000/avg); UI.fpsAcc=0; UI.fpsN=0; if(avg>70&&!UI.lowQ&&!UI.lowQAsked){ UI.lowQAsked=true; setLowQ(true); toast('Grafik otomatis diturunkan ke mode hemat supaya lebih lancar.'); } } }
   if(UI.skip){ skipTick(); requestAnimationFrame(frame); return; }
   const sp=timeHold()?0:UI.speed;
   if(sp>0){
@@ -6194,7 +6207,7 @@ function openSetup(){
 }
 
 /* ---------- init ---------- */
-function resize(){ const r=R_.cv.parentElement.getBoundingClientRect(); R_.dpr=Math.min(2,window.devicePixelRatio||1); R_.cv.width=Math.max(1,r.width*R_.dpr); R_.cv.height=Math.max(1,r.height*R_.dpr); }
+function resize(){ const r=R_.cv.parentElement.getBoundingClientRect(); R_.dpr=UI.lowQ?1:Math.min(2,window.devicePixelRatio||1); R_.cv.width=Math.max(1,r.width*R_.dpr); R_.cv.height=Math.max(1,r.height*R_.dpr); }
 function zoomAt(sx,sy,f){ const c=R_.cam; const nz=clamp(c.z*f,.45,7); const [wx,wy]=toWorld(sx,sy); c.z=nz; c.x=wx-sx/nz; c.y=wy-sy/nz; }
 function initUI(){
   R_.cv=$('cv'); R_.ctx=R_.cv.getContext('2d');
@@ -6210,6 +6223,7 @@ function initUI(){
     else if(b.id==='btnLoad'){ loadGame(); }
     else if(b.id==='btnNew'){ openSetup(); }
     else if(b.id==='btnSkip'){ openSkip(); }
+    else if(b.id==='btnQ'){ setLowQ(!UI.lowQ); toast(UI.lowQ?'Mode grafik hemat aktif.':'Mode grafik normal.'); }
   });
   $('zin').onclick=()=>{ const r=R_.cv.getBoundingClientRect(); zoomAt(r.width/2,r.height/2,1.3); };
   $('zout').onclick=()=>{ const r=R_.cv.getBoundingClientRect(); zoomAt(r.width/2,r.height/2,1/1.3); };
@@ -6599,6 +6613,9 @@ function finishSkip(){
   if(G.savedOnce) saveGame(true);
 }
 
+function setLowQ(on){ UI.lowQ=on; try{ localStorage.setItem('takhta-lowq',on?'1':'0'); }catch(e){} resize(); const b=$('btnQ'); if(b) b.textContent='Grafik: '+(on?'Hemat':'Normal'); }
+try{ if(localStorage.getItem('takhta-lowq')==='1'){ UI.lowQ=true; UI.lowQAsked=true; } }catch(e){}
+
 /* =====================================================================
    UI 5: menonton eksplorasi dungeon, panel Hunter Village
    ===================================================================== */
@@ -6716,6 +6733,7 @@ function dungeonInsideHtml(d){
   return ps.length?`<div class="card"><h3>Di dalam sekarang</h3>${ps.map(p=>`<div class="row" style="justify-content:space-between"><span>${esc(pName(p))} · lantai ${p.script.cur||1}</span><button class="btn" data-dvp="${p.id}">Tonton</button></div>`).join('')}</div>`:'';
 }
 function initUI5(){
+  if(UI.lowQ&&$('btnQ')) $('btnQ').textContent='Grafik: Hemat';
   $('dvx').addEventListener('click',closeDV);
   $('pbody').addEventListener('click',e=>{ const v=e.target.closest('[data-dvp]'); if(v){ openDV(+v.dataset.dvp); } });
 }
