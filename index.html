@@ -2202,7 +2202,7 @@ function yearly(){
   if(G.demonCount>=5&&!G.prophecy&&!G.units.some(u=>!u.dead&&u.b===BIDX('Pahlawan'))){ G.prophecy=true; log('Nubuat terpenuhi: lima Raja Iblis bersemayam di bawah tanah. Anak berikutnya yang lahir di dunia akan membawa berkat Pahlawan.','hero'); }
   if(G.dungeons.length<8&&rnd()<.18) placeDungeon(false);
   if(G.nests.length<16&&rnd()<.3) placeNest();
-  for(let i=0;i<MW*MH;i++) if(G.trees[i]===2&&rnd()<.25){ G.trees[i]=1; G.dirty.terrain=true; }
+  for(let i=0;i<MW*MH;i++) if(G.trees[i]===2&&rnd()<.25){ G.trees[i]=1; (G.dirtyTiles=G.dirtyTiles||[]).push([i%MW,(i/MW)|0]); }
   if(y%10===0&&y>0){ const pop=G.units.filter(u=>!u.dead&&u.race!=='monster').length; log(`Tahun ${y}. Dunia dihuni ${pop} jiwa di ${G.towns.length} pemukiman.`,''); }
 }
 
@@ -5490,37 +5490,50 @@ function wallSprite(race,gate,side){
 
 /* ---------- medan ---------- */
 const TCOL=['#1d3a5f','#2f6a96','#dcc994','#76a84f','#3f7a3e','#d6ae6a','#9a8f5c','#7f776a','#e2e6ea'];
+function thash(x,y,k){ let h=(G.seed|0)^Math.imul(x+1,374761393)^Math.imul(y+7,668265263)^Math.imul(k+3,-2048144777); h=Math.imul(h^(h>>>13),1274126177); h^=h>>>16; return ((h>>>0)%1000)/1000; }
+function drawTileBase(g,x,y){
+  if(x<0||y<0||x>=MW||y>=MH) return;
+  const R=(x,y,w,h,c)=>{ g.fillStyle=c; g.fillRect(x,y,w,h); };
+  const i=y*MW+x, t=G.tiles[i], e=G.E[i], px=x*TS, py=y*TS; let n=0; const r=()=>thash(x,y,n++);
+  let c=TCOL[t];
+  if(t<=1) c=shade(c,(e-.25)*.6);
+  R(px,py,TS,TS,c);
+  if(t===T.GRASS||t===T.FOREST){ for(let k=0;k<3;k++) R(px+Math.floor(r()*TS),py+Math.floor(r()*TS),1,1,t===T.GRASS?(r()<.5?'#86b65c':'#689a46'):'#4a8a46'); if(r()<.05) R(px+3,py+3,1,1,['#f0e070','#f07aa0','#ffffff'][Math.floor(r()*3)]); }
+  else if(t===T.SAND||t===T.DESERT){ if(r()<.4) R(px+Math.floor(r()*7),py+Math.floor(r()*7),2,1,shade(c,-.1)); }
+  else if(t===T.WATER){ if(r()<.15) R(px+Math.floor(r()*5),py+Math.floor(r()*7),3,1,'#4f8ab8'); }
+  else if(t===T.HILLS){ R(px+1,py+5,6,1,shade(c,-.18)); R(px+2,py+4,4,1,shade(c,.12)); }
+  else if(t===T.MOUNT||t===T.SNOW){ const top=t===T.SNOW?'#ffffff':'#a49a8c'; R(px+1,py+6,6,2,shade(c,-.15)); R(px+2,py+3,4,3,c); R(px+3,py+1,2,2,top); R(px+5,py+3,1,4,shade(c,-.25)); }
+  if(t===T.SAND||t===T.GRASS){ if(tileAt(x,y+1)===T.WATER) R(px,py+7,8,1,'#f0f4f0'); if(tileAt(x,y-1)===T.WATER) R(px,py,8,1,'rgba(255,255,255,.35)'); }
+  const rd=G.road[i];
+  if(rd===1){ R(px,py,TS,TS,'#c2a574'); if(r()<.5) R(px+Math.floor(r()*7),py+Math.floor(r()*7),1,1,'#a88c5c'); }
+  else if(rd===2){ R(px,py,TS,TS,'#bdb5a2'); R(px,py,TS,1,'#a8a090'); R(px+(y%2?4:0),py,1,TS,'#a8a090'); }
+}
+function drawTileTree(g,x,y){
+  if(x<0||y<0||x>=MW||y>=MH) return;
+  const R=(x,y,w,h,c)=>{ g.fillStyle=c; g.fillRect(x,y,w,h); };
+  const i=y*MW+x, tr=G.trees[i]; if(!tr) return;
+  const px=x*TS+4, py=y*TS+6, t=G.tiles[i];
+  if(tr===2){ R(px-1,py-1,3,2,'#7a5a32'); R(px,py-1,1,1,'#a8845a'); return; }
+  const pine=t===T.HILLS||t===T.MOUNT||(x*7+y*3)%5===0;
+  if(pine){ R(px,py-1,1,3,'#5a3a1e'); for(let k=0;k<6;k++){ const w=Math.max(1,k); R(px-w+1,py-8+k,w*2-1,1,k<2?'#4a8a4a':k<4?'#2f6a35':'#285c2e'); } }
+  else { R(px-1,py-2,2,4,'#6a4a2a'); for(let yy=-5;yy<=4;yy++){ const w=Math.round(Math.sqrt(1-(yy/5.5)**2)*5); R(px-w,py-7+yy,w*2,1,yy<-2?'#5aa04a':yy>2?'#2f6a35':'#418a40'); } R(px-3,py-11,2,1,'#7cc860'); }
+}
 function renderTerrain(){
   if(!R_.terrain){ R_.terrain=document.createElement('canvas'); R_.terrain.width=MW*TS; R_.terrain.height=MH*TS; }
   const g=R_.terrain.getContext('2d');
-  let s=G.seed|0;
-  const r=()=>{ s=(s*16807+11)%2147483647; return (s%1000)/1000; };
-  const R=(x,y,w,h,c)=>{ g.fillStyle=c; g.fillRect(x,y,w,h); };
-  for(let y=0;y<MH;y++)for(let x=0;x<MW;x++){
-    const i=y*MW+x, t=G.tiles[i], e=G.E[i], px=x*TS, py=y*TS;
-    let c=TCOL[t];
-    if(t<=1) c=shade(c,(e-.25)*.6);
-    R(px,py,TS,TS,c);
-    if(t===T.GRASS||t===T.FOREST){ for(let k=0;k<3;k++) R(px+Math.floor(r()*TS),py+Math.floor(r()*TS),1,1,t===T.GRASS?(r()<.5?'#86b65c':'#689a46'):'#4a8a46'); if(r()<.05) R(px+3,py+3,1,1,['#f0e070','#f07aa0','#ffffff'][Math.floor(r()*3)]); }
-    else if(t===T.SAND||t===T.DESERT){ if(r()<.4) R(px+Math.floor(r()*7),py+Math.floor(r()*7),2,1,shade(c,-.1)); }
-    else if(t===T.WATER){ if(r()<.15) R(px+Math.floor(r()*5),py+Math.floor(r()*7),3,1,'#4f8ab8'); }
-    else if(t===T.HILLS){ R(px+1,py+5,6,1,shade(c,-.18)); R(px+2,py+4,4,1,shade(c,.12)); }
-    else if(t===T.MOUNT||t===T.SNOW){ const top=t===T.SNOW?'#ffffff':'#a49a8c'; R(px+1,py+6,6,2,shade(c,-.15)); R(px+2,py+3,4,3,c); R(px+3,py+1,2,2,top); R(px+5,py+3,1,4,shade(c,-.25)); }
-    if(t===T.SAND||t===T.GRASS){ if(tileAt(x,y+1)===T.WATER) R(px,py+7,8,1,'#f0f4f0'); if(tileAt(x,y-1)===T.WATER) R(px,py,8,1,'rgba(255,255,255,.35)'); }
-    const rd=G.road[i];
-    if(rd===1){ R(px,py,TS,TS,'#c2a574'); if(r()<.5) R(px+Math.floor(r()*7),py+Math.floor(r()*7),1,1,'#a88c5c'); }
-    else if(rd===2){ R(px,py,TS,TS,'#bdb5a2'); R(px,py,TS,1,'#a8a090'); R(px+(y%2?4:0),py,1,TS,'#a8a090'); }
+  for(let y=0;y<MH;y++)for(let x=0;x<MW;x++) drawTileBase(g,x,y);
+  for(let y=0;y<MH;y++)for(let x=0;x<MW;x++) drawTileTree(g,x,y);
+  G.dirty.terrain=false; G.dirtyTiles=[]; R_.lastTerrain=performance.now();
+}
+function renderTerrainTiles(list){
+  if(!R_.terrain){ renderTerrain(); return; }
+  const g=R_.terrain.getContext('2d');
+  for(const [tx,ty] of list){
+    g.save(); g.beginPath(); g.rect((tx-1)*TS,(ty-2)*TS,TS*3,TS*3); g.clip();
+    for(let y=ty-2;y<=ty+1;y++) for(let x=tx-2;x<=tx+2;x++) drawTileBase(g,x,y);
+    for(let y=ty-2;y<=ty+3;y++) for(let x=tx-2;x<=tx+2;x++) drawTileTree(g,x,y);
+    g.restore();
   }
-  // pohon (urut atas ke bawah agar tumpang tindih wajar)
-  for(let y=0;y<MH;y++)for(let x=0;x<MW;x++){
-    const i=y*MW+x, tr=G.trees[i]; if(!tr) continue;
-    const px=x*TS+4, py=y*TS+6, t=G.tiles[i];
-    if(tr===2){ R(px-1,py-1,3,2,'#7a5a32'); R(px,py-1,1,1,'#a8845a'); continue; }
-    const pine=t===T.HILLS||t===T.MOUNT||(x*7+y*3)%5===0;
-    if(pine){ R(px,py-1,1,3,'#5a3a1e'); for(let k=0;k<6;k++){ const w=Math.max(1,k); R(px-w+1,py-8+k,w*2-1,1,k<2?'#4a8a4a':k<4?'#2f6a35':'#285c2e'); } }
-    else { R(px-1,py-2,2,4,'#6a4a2a'); for(let yy=-5;yy<=4;yy++){ const w=Math.round(Math.sqrt(1-(yy/5.5)**2)*5); R(px-w,py-7+yy,w*2,1,yy<-2?'#5aa04a':yy>2?'#2f6a35':'#418a40'); } R(px-3,py-11,2,1,'#7cc860'); }
-  }
-  G.dirty.terrain=false; R_.lastTerrain=performance.now();
 }
 const CROP_COL={gandum:['#7ac04a','#5a9a3a','#d8b040','#f0d060'],kubis:['#7ac04a','#4a9a4a','#5ab05a','#9ad07a'],labu:['#7ac04a','#4a8a3a','#e07a2a','#f0a040'],jagung:['#7ac04a','#4a9a3a','#c8b040','#e8d060']};
 function plotCanvas(f){
@@ -5554,7 +5567,7 @@ function fieldCanvas(si){
 }
 
 /* ---------- efek ---------- */
-function pullFx(){ while(FX_QUEUE.length){ const f=FX_QUEUE.shift(); if(f.k==='tile'){ G.dirty.terrain=true; continue; } f.max=f.t; R_.fx.push(f); } }
+function pullFx(){ while(FX_QUEUE.length){ const f=FX_QUEUE.shift(); if(f.k==='tile'){ (R_.tileQ=R_.tileQ||[]).push([f.tx,f.ty]); continue; } f.max=f.t; R_.fx.push(f); } }
 
 /* ---------- kamera ---------- */
 function toScreen(wx,wy){ const c=R_.cam; return [(wx-c.x)*c.z, (wy-c.y)*c.z]; }
@@ -5564,6 +5577,8 @@ function toWorld(sx,sy){ const c=R_.cam; return [sx/c.z+c.x, sy/c.z+c.y]; }
 function drawWorld(){
   const cv=R_.cv, g=R_.ctx, dpr=R_.dpr, cam=R_.cam;
   const W=cv.width/dpr, H=cv.height/dpr, z=cam.z;
+  if(G.dirtyTiles&&G.dirtyTiles.length){ if(G.dirtyTiles.length>400) G.dirty.terrain=true; else (R_.tileQ=R_.tileQ||[]).push(...G.dirtyTiles); G.dirtyTiles.length=0; }
+  if(R_.tileQ&&R_.tileQ.length){ renderTerrainTiles(R_.tileQ.splice(0,60)); }
   if(G.dirty.terrain&&performance.now()-R_.lastTerrain>2500) renderTerrain();
   g.setTransform(dpr,0,0,dpr,0,0); g.imageSmoothingEnabled=false;
   g.fillStyle='#1d3a5f'; g.fillRect(0,0,W,H);
@@ -6108,7 +6123,7 @@ function u8b64(a){ let s=''; for(let i=0;i<a.length;i+=8192) s+=String.fromCharC
 function b64u8(s){ const b=atob(s); const a=new Uint8Array(b.length); for(let i=0;i<b.length;i++) a[i]=b.charCodeAt(i); return a; }
 function saveGame(silent){
   try{
-    const o={v:2}; for(const k in G){ if(['uMap','bMap','E','tiles','trees','road','occ','dirty','alert'].includes(k)) continue; o[k]=G[k]; }
+    const o={v:2}; for(const k in G){ if(['uMap','bMap','E','tiles','trees','road','occ','dirty','alert','dirtyTiles','skipLog'].includes(k)) continue; o[k]=G[k]; }
     o.tiles=u8b64(G.tiles); o.trees=u8b64(G.trees); o.road=u8b64(G.road); o.occ=u8b64(G.occ);
     localStorage.setItem(SAVE_KEY,JSON.stringify(o));
     if(!silent) toast(`Dunia tersimpan (tahun ${yearInt()}).`);
@@ -6156,7 +6171,7 @@ function frame(t){
   if(UI.follow&&UI.sel&&UI.sel.type==='unit'){ const u=U(UI.sel.id); if(u){ const r=R_.cv.getBoundingClientRect(); const tx=u.x-r.width/2/R_.cam.z, ty=u.y-r.height/2/R_.cam.z; R_.cam.x+=(tx-R_.cam.x)*.15; R_.cam.y+=(ty-R_.cam.y)*.15; } else UI.follow=false; }
   drawWorld();
   if(UI.dv) drawDV(); else dvAutoCheck();
-  statT+=dt; if(statT>400){ statT=0; stats(); if(G.dirty.chron&&UI.tab==='kronik'){ G.dirty.chron=false; UI.pdirty=true; } if(['detail','dewa','kerajaan','party','arsip'].includes(UI.tab)) UI.pdirty=true; renderPanel(false); possT++; if(G.possess&&possT%2===0) renderPossess(); }
+  statT+=dt; if(statT>400){ statT=0; stats(); if(G.dirty.chron&&UI.tab==='kronik'){ G.dirty.chron=false; UI.pdirty=true; } if(['detail','dewa','kerajaan','party','arsip'].includes(UI.tab)&&possT%3===0) UI.pdirty=true; renderPanel(false); possT++; if(G.possess&&possT%2===0) renderPossess(); }
   autoT+=dt; if(autoT>180000){ autoT=0; if(G.savedOnce) saveGame(true); }
   requestAnimationFrame(frame);
 }
