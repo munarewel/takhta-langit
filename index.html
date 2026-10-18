@@ -150,6 +150,7 @@ select{background:var(--vault-2);border:1px solid var(--line);border-radius:7px;
       <button id="btnMenu" class="mnu" aria-expanded="false">Menu</button>
       <button id="btnSkip" class="mi">Lompat Waktu</button>
       <button id="btnQ" class="mi">Grafik: Normal</button>
+      <button id="btnPerf" class="mi">Info kinerja</button>
       <button id="btnSave" class="mi">Simpan</button>
       <button id="btnLoad" class="mi">Muat</button>
       <button id="btnNew" class="mi">Dunia Baru</button>
@@ -163,6 +164,7 @@ select{background:var(--vault-2);border:1px solid var(--line);border-radius:7px;
     <div class="setup" id="setup" hidden></div>
     <div class="dream" id="dream" hidden></div>
     <div class="tstop" id="tstop" hidden></div>
+    <div id="perfbox" hidden style="position:absolute;left:6px;bottom:6px;z-index:4;background:rgba(10,10,20,.85);color:#cfe;font:11px/1.35 monospace;padding:5px 7px;border-radius:6px;pointer-events:none;white-space:pre"></div>
     <div class="dview" id="dview" hidden><canvas id="dvc"></canvas><div class="dvhud" id="dvhud"></div><button class="btn warn dvx" id="dvx">Kembali ke permukaan</button></div>
     <div class="zoom"><button id="zin" aria-label="Perbesar">+</button><button id="zout" aria-label="Perkecil">−</button></div>
     <div class="toast" id="toast" style="opacity:0"></div>
@@ -5555,7 +5557,7 @@ function drawChunkRegion(cx,cy,x0,y0,x1,y1){
   g.restore();
 }
 function renderTerrain(){
-  R_.terrain=true;
+  R_.terrain=true; if(typeof PF!=='undefined') PF.terr=(PF.terr||0)+1;
   const nx=Math.ceil(MW/CHK), ny=Math.ceil(MH/CHK);
   for(let cy=0;cy<ny;cy++) for(let cx=0;cx<nx;cx++) drawChunkRegion(cx,cy,cx*CHK,cy*CHK,cx*CHK+CHK-1,cy*CHK+CHK-1);
   G.dirty.terrain=false; G.dirtyTiles=[]; R_.tileQ=[]; R_.lastTerrain=performance.now();
@@ -5838,7 +5840,7 @@ function fitCamera(){
   const cx=t?(t.cx+1)*TS:MW*TS/2, cy=t?(t.cy+1)*TS:MH*TS/2;
   R_.cam.x=cx-r.width/2/R_.cam.z; R_.cam.y=cy-r.height/2/R_.cam.z;
 }
-function centerOn(x,y,z){ const r=R_.cv.getBoundingClientRect(); if(z) R_.cam.z=z; R_.cam.x=x-r.width/2/R_.cam.z; R_.cam.y=y-r.height/2/R_.cam.z; }
+function centerOn(x,y,z){ const r={width:R_.cv.width/R_.dpr,height:R_.cv.height/R_.dpr}; if(z) R_.cam.z=z; R_.cam.x=x-r.width/2/R_.cam.z; R_.cam.y=y-r.height/2/R_.cam.z; }
 
 /* =====================================================================
    UI: alat GM, panel, rasuki, simpan/muat, loop
@@ -5958,7 +5960,7 @@ function possessAction(a){
 }
 
 /* ---------- tab & panel ---------- */
-function setTab(t){ UI.tab=t; for(const b of document.querySelectorAll('#tabs button')) b.setAttribute('aria-selected',b.dataset.t===t); UI.pdirty=true; renderPanel(true); }
+function setTab(t){ UI.tab=t; if($('pbody')) $('pbody')._h=null; for(const b of document.querySelectorAll('#tabs button')) b.setAttribute('aria-selected',b.dataset.t===t); UI.pdirty=true; renderPanel(true); }
 function renderPanel(force){
   const now=performance.now();
   if(!force&&now-UI.lastPanel<800&&!UI.pdirty) return;
@@ -6190,6 +6192,7 @@ function stats(){
 }
 let statT=0, autoT=0;
 function frame(t){
+  if(UI.perf) PF.frameStart(t);
   const rawDt=t-lastT; const dt=Math.min(100,rawDt||16); lastT=t;
   if(!UI.skip&&rawDt>0&&rawDt<3000){ UI.fpsAcc=(UI.fpsAcc||0)+rawDt; UI.fpsN=(UI.fpsN||0)+1; if(UI.fpsAcc>3000){ const avg=UI.fpsAcc/UI.fpsN; UI.fps=Math.round(1000/avg); UI.fpsAcc=0; UI.fpsN=0; if(avg>70&&!UI.lowQ&&!UI.lowQAsked){ UI.lowQAsked=true; setLowQ(true); toast('Grafik otomatis diturunkan ke mode hemat supaya lebih lancar.'); } } }
   if(UI.skip){ skipTick(); requestAnimationFrame(frame); return; }
@@ -6197,15 +6200,15 @@ function frame(t){
   if(sp>0){
     acc+=dt*sp*4/1000;
     let n=0; const maxN=Math.max(3,Math.ceil(sp*4/40)+2);
-    while(acc>=1&&n<maxN){ step(); acc-=1; n++; }
+    { const t0=performance.now(); while(acc>=1&&n<maxN){ step(); acc-=1; n++; } if(UI.perf) PF.add('simulasi',performance.now()-t0); }
     if(n>=maxN) acc=Math.min(acc,1);
     R_.alpha=sp>=30?1:clamp(acc,0,1);
   } else R_.alpha=1;
   pullFx();
-  if(UI.follow&&UI.sel&&UI.sel.type==='unit'){ const u=U(UI.sel.id); if(u){ const r=R_.cv.getBoundingClientRect(); const tx=u.x-r.width/2/R_.cam.z, ty=u.y-r.height/2/R_.cam.z; R_.cam.x+=(tx-R_.cam.x)*.15; R_.cam.y+=(ty-R_.cam.y)*.15; } else UI.follow=false; }
-  drawWorld();
+  if(UI.follow&&UI.sel&&UI.sel.type==='unit'){ const u=U(UI.sel.id); if(u){ const r={width:R_.cv.width/R_.dpr,height:R_.cv.height/R_.dpr}; const tx=u.x-r.width/2/R_.cam.z, ty=u.y-r.height/2/R_.cam.z; R_.cam.x+=(tx-R_.cam.x)*.15; R_.cam.y+=(ty-R_.cam.y)*.15; } else UI.follow=false; }
+  { const t0=performance.now(); drawWorld(); if(UI.perf) PF.add('gambar',performance.now()-t0); }
   if(UI.dv) drawDV(); else dvAutoCheck();
-  statT+=dt; if(statT>400){ statT=0; stats(); if(G.dirty.chron&&UI.tab==='kronik'){ G.dirty.chron=false; UI.pdirty=true; } if(['detail','dewa','kerajaan','party','arsip'].includes(UI.tab)&&possT%3===0) UI.pdirty=true; renderPanel(false); possT++; if(G.possess&&possT%2===0) renderPossess(); }
+  statT+=dt; if(statT>400){ statT=0; stats(); if(G.dirty.chron&&UI.tab==='kronik'){ G.dirty.chron=false; UI.pdirty=true; } if(['detail','dewa','kerajaan','party','arsip'].includes(UI.tab)&&possT%3===0) UI.pdirty=true; { const t0=performance.now(); renderPanel(false); if(UI.perf) PF.add('panel',performance.now()-t0); } possT++; if(G.possess&&possT%2===0) renderPossess(); }
   autoT+=dt; if(autoT>180000){ autoT=0; if(G.savedOnce) saveGame(true); }
   requestAnimationFrame(frame);
 }
@@ -6244,7 +6247,8 @@ function initUI(){
     else if(b.id==='btnLoad'){ loadGame(); }
     else if(b.id==='btnNew'){ openSetup(); }
     else if(b.id==='btnSkip'){ openSkip(); }
-    else if(b.id==='btnQ'){ setLowQ(!UI.lowQ); toast(UI.lowQ?'Mode grafik hemat aktif.':'Mode grafik normal.'); }
+    else if(b.id==='btnPerf'){ UI.perf=!UI.perf; $('perfbox').hidden=!UI.perf; PF.reset(); }
+    else if(b.id==='btnQ'){ setLowQ(!UI.lowQ,true); toast(UI.lowQ?'Mode grafik hemat aktif.':'Mode grafik normal.'); }
   });
   $('zin').onclick=()=>{ const r=R_.cv.getBoundingClientRect(); zoomAt(r.width/2,r.height/2,1.3); };
   $('zout').onclick=()=>{ const r=R_.cv.getBoundingClientRect(); zoomAt(r.width/2,r.height/2,1/1.3); };
@@ -6634,8 +6638,17 @@ function finishSkip(){
   if(G.savedOnce) saveGame(true);
 }
 
-function setLowQ(on){ UI.lowQ=on; try{ localStorage.setItem('takhta-lowq',on?'1':'0'); }catch(e){} resize(); const b=$('btnQ'); if(b) b.textContent='Grafik: '+(on?'Hemat':'Normal'); }
+function setLowQ(on,persist){ UI.lowQ=on; if(persist) try{ localStorage.setItem('takhta-lowq',on?'1':'0'); }catch(e){} resize(); const b=$('btnQ'); if(b) b.textContent='Grafik: '+(on?'Hemat':'Normal'); }
 try{ if(localStorage.getItem('takhta-lowq')==='1'){ UI.lowQ=true; UI.lowQAsked=true; } }catch(e){}
+
+const PF={win:[],cur:{},last:0,worst:{ms:0},t0:0,
+  reset(){ this.win=[]; this.cur={}; this.worst={ms:0}; this.last=0; this.terr=0; },
+  frameStart(t){ if(this.last){ const ms=t-this.last; const rec={ms,parts:this.cur}; this.win.push(rec); if(this.win.length>240) this.win.shift(); if(ms>this.worst.ms||performance.now()-this.worst.at>5000) this.worst={ms,parts:this.cur,at:performance.now()}; } this.last=t; this.cur={}; if(++this.n%20===0) this.show(); },
+  add(k,ms){ this.cur[k]=(this.cur[k]||0)+ms; },
+  n:0,
+  show(){ const w=this.win; if(!w.length) return; const avg=w.reduce((s,r)=>s+r.ms,0)/w.length; const sum={}; for(const r of w) for(const k in r.parts) sum[k]=(sum[k]||0)+r.parts[k];
+    const wp=Object.entries(this.worst.parts||{}).map(([k,v])=>k+' '+v.toFixed(0)).join(', ');
+    $('perfbox').textContent=`fps ${(1000/avg).toFixed(0)} · frame ${avg.toFixed(1)} ms\n${Object.entries(sum).map(([k,v])=>k+' '+(v/w.length).toFixed(1)+' ms').join(' · ')}\nterlama ${this.worst.ms.toFixed(0)} ms (${wp||'di luar game'})\nmedan penuh ${this.terr||0}× · jiwa ${G.units.filter(u=>!u.dead&&u.race!=='monster').length} · unit ${G.units.length} · dpr ${R_.dpr}`; } };
 
 /* =====================================================================
    UI 5: menonton eksplorasi dungeon, panel Hunter Village
@@ -6754,6 +6767,7 @@ function dungeonInsideHtml(d){
   return ps.length?`<div class="card"><h3>Di dalam sekarang</h3>${ps.map(p=>`<div class="row" style="justify-content:space-between"><span>${esc(pName(p))} · lantai ${p.script.cur||1}</span><button class="btn" data-dvp="${p.id}">Tonton</button></div>`).join('')}</div>`:'';
 }
 function initUI5(){
+  { const pb=$('pbody'); const desc=Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML'); Object.defineProperty(pb,'innerHTML',{configurable:true,get(){ return desc.get.call(this); },set(v){ if(this._h===v) return; this._h=v; desc.set.call(this,v); }}); }
   if(UI.lowQ&&$('btnQ')) $('btnQ').textContent='Grafik: Hemat';
   $('dvx').addEventListener('click',closeDV);
   $('pbody').addEventListener('click',e=>{ const v=e.target.closest('[data-dvp]'); if(v){ openDV(+v.dataset.dvp); } });
