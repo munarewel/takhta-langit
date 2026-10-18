@@ -4230,7 +4230,7 @@ function hvTick(){
   if(G.step%30===0&&(hv.state==='asking'||hv.state==='moving')) hvWatchdog();
   if(!hv.ship) return;
   const s=hv.ship;
-  if(s.mode==='in'||s.mode==='out'){ const dx=s.tx-s.x, dy=s.ty-s.y, d=Math.hypot(dx,dy); if(d>2){ s.x+=dx/d*.45; s.y+=dy/d*.45; s.flip=dx<0; } else if(s.mode==='in'){ s.mode='dock'; hvLand(); } else { hv.ship=null; } }
+  if(s.mode==='in'||s.mode==='out'){ const dx=s.tx-s.x, dy=s.ty-s.y, d=Math.hypot(dx,dy); if(d>2){ s.x+=dx/d*.45; s.y+=dy/d*.45; s.flip=dx<0; } else if(s.mode==='in'){ if(s.visit){ const sh=s.visit.shore; hvVisitLand(s.visit); s.visit=null; s.mode='out'; s.tx=clamp(s.x+(s.x-sh.x)*4,TS,(MW-1)*TS); s.ty=clamp(s.y+(s.y-sh.y)*4,TS,(MH-1)*TS); } else { s.mode='dock'; hvLand(); } } else { hv.ship=null; } }
 }
 function hvLand(){
   const hv=G.hv; const sh=hv.shore;
@@ -5033,7 +5033,34 @@ function chaosSlain(m,killer){
 /* peringkat Hunter: anggota satu peringkat di bawah boleh ikut bila dibimbing senior */
 function hrankNeed(q){ if(q.type==='gather'||q.type==='ekspedisi') return 0; if(q.type==='slay') return 1; if(q.type==='hunt'){ const m=U(q.target); const rk=m?RANK_ORDER.indexOf(MON[m.mk].rank):4; return rk>=6?3:2; } return 0; }
 function daily11(){ worldUpgrade11(); }
-function yearly11(){ chaosYearly(); }
+function yearly11(){ chaosYearly(); hvVisitYearly(); }
+/* ---------- kapal Hunter dari negeri lain ---------- */
+const HV_LANDS=['Negeri Kabut Utara','Kepulauan Taring','Benua Pasir Merah','Lembah Seribu Sarang','Kerajaan Es Varn','Tanah Rawa Selatan','Dunia Seberang Timur'];
+function hvVisitYearly(){
+  const hv=G.hv; if(!hv||hv.state!=='founded'||hv.ship) return; const t=hvTown(); if(!t) return;
+  const n=G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='hunter').length; if(n>=40||rnd()>.4) return;
+  const c=coastPoint(t)||(hv.shore?{x:Math.floor(hv.shore.x/TS),y:Math.floor(hv.shore.y/TS)}:null); if(!c) return;
+  let shore=null; for(let r=0;r<6&&!shore;r++) for(let dy=-r;dy<=r&&!shore;dy++) for(let dx=-r;dx<=r&&!shore;dx++) if(isLand(tileAt(c.x+dx,c.y+dy))) shore={x:(c.x+dx+.5)*TS,y:(c.y+dy+.5)*TS};
+  if(!shore) return;
+  let st=null; for(let i=0;i<300&&!st;i++){ const a=rnd()*Math.PI*2, r=22+rnd()*18; const x=Math.round(c.x+Math.cos(a)*r), y=Math.round(c.y+Math.sin(a)*r); if(tileAt(x,y)===T.DEEP||i>200&&tileAt(x,y)===T.WATER) st={x,y}; }
+  if(!st) return;
+  const land=pick(HV_LANDS);
+  hv.ship={x:(st.x+.5)*TS,y:(st.y+.5)*TS,tx:(c.x+.5)*TS,ty:(c.y+.5)*TS,mode:'in',visit:{n:ri(2,4),land,shore}};
+  log(`Sebuah kapal Hunter dari ${land} terlihat mendekati pantai.`,'life',{x:hv.ship.x,y:hv.ship.y});
+}
+function hvVisitLand(v){
+  const hv=G.hv, t=hvTown(), k=hvKing(); if(!t||!k) return;
+  const sh=v.shore; const names=[];
+  for(let i=0;i<v.n;i++){
+    const r=rnd(); const lvl=r<.35?ri(3,8):r<.7?ri(9,16):r<.92?ri(17,26):ri(27,36);
+    const u=makeUnit({race:pick(['manusia','manusia','beastkin','elf','dwarf']),age:ri(19,42),sex:rnd()<.65?'m':'f',x:sh.x+ri(-14,14),y:sh.y+ri(-8,8),gold:ri(40,160),b:BIDX(rnd()<.8?'Hunter':'Tamer'),lvl});
+    u.revealed=true; u.town=t.id; u.kingdom=k.id; const tent=G.blds.find(b=>b.town===t.id&&b.type==='tenda'); u.home=tent?tent.id:null; u.career=null; assignCareer(u); hvOutfit(u);
+    u.flags.origin=v.land; u.flags.hrank=null; hrank(u); hist(u,`datang dengan kapal dari ${v.land} untuk bergabung dengan Hunter Village`);
+    goTo(u,(t.cx+1)*TS+ri(-20,20),(t.cy+2)*TS+ri(-10,10)); names.push(`${u.name} (${HRANK[hrank(u)]})`);
+  }
+  log(`Kapal dari ${v.land} berlabuh. ${v.n} Hunter asing turun dan berjalan menuju Hunter Village: ${names.join(', ')}.`,'life',{x:sh.x,y:sh.y});
+  if(typeof plogHV==='function') plogHV(`${v.n} Hunter dari ${v.land} bergabung.`);
+}
 
 /* ================= SPRITE PIKSEL ================= */
 
@@ -7442,6 +7469,7 @@ function unitExtra9(u){
   if(isHV(u)&&u.career==='hunter'){ const r=hrank(u); h+=`<dt>Peringkat Hunter</dt><dd>${HRANK[r]}${u.flags.hpts?` · ${u.flags.hpts} poin misi`:''}${u.flags.vetHeir?' · calon pengganti Veteran':''}${G.hv&&G.hv.vet===u.id?' · pemimpin desa':''}</dd>`; }
   if(u.flags.heroSword) h+=`<dt>Warisan Zenith</dt><dd>Pedang Pahlawan · Final Slash</dd>`; else if(has(u,'Ksatria Zenith')) h+=`<dt>Warisan Zenith</dt><dd>Pedang Pahlawan menunggu di Lv 50 (kini Lv ${u.lvl})</dd>`;
   if(u.flags.read) h+=`<dt>Perpustakaan</dt><dd>${u.flags.read} kunjungan${u.flags.lastBook?` · terakhir membaca "${esc(u.flags.lastBook)}"`:''}</dd>`;
+  if(u.flags.origin) h+=`<dt>Asal</dt><dd>${esc(u.flags.origin)} (datang dengan kapal)</dd>`;
   if(u.flags.allyWins) h+=`<dt>Perburuan aliansi</dt><dd>${u.flags.allyWins} kemenangan</dd>`;
   if(u.flags.haul) h+=`<dt>Tugas Tamer</dt><dd>${u.flags.haul.phase==='go'?'Menjemput':'Menyeret'} bangkai ${esc(MON[u.flags.haul.mk].n)} ke ${esc(BLD.lelang.n)}</dd>`;
   return h;
