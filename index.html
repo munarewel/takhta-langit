@@ -1108,6 +1108,7 @@ function chooseTask(u){
   if(u.flags.infil) return infilTask(u);
   if(u.flags.hvWait&&hvWaitTask(u)) return;
   if(u.flags.haul){ haulStep(u); if(u.task) return; }
+  if(u.flags.ferry){ u.task={k:'ferry'}; return; }
   if(u.ally){ allyStep(u); if(u.task) return; }
   if(u.hq&&!isNight()){ u.task={k:'hq'}; return; }
   if(libraryTask(u)) return;
@@ -1431,6 +1432,7 @@ function runTask(u){
     case 'cook': cookStep(u,k); break;
     case 'hq': hqStep(u); break;
     case 'ally': allyStep(u); break;
+    case 'ferry': if(u.flags.ferry) ferryStep(u); else u.task=null; break;
     case 'read': readStep(u,k); break;
     case 'haul': haulStep(u); break;
     case 'courier': courierStep(u,k); break;
@@ -3254,13 +3256,16 @@ function pickPlan(p,t,mem){
   if(p.orders){ const o=p.orders; p.orders=null; if((o.plan==='dungeon'&&G.dungeons.some(d=>d.id===o.target))||(o.plan==='den'&&(G.dens||[]).some(d=>d.id===o.target))||(o.plan==='hunt'&&G.nests.some(n=>n.id===o.target))) return {plan:o.plan,target:o.target,quest:null,ordered:true}; }
   const qs=(t.quests||[]).filter(q=>!q.done&&!q.taker);
   const qden=qs.find(q=>q.type==='den'&&(G.dens||[]).some(d=>d.id===q.den)&&mem.length>=3&&avg>=7);
-  const qd=qs.find(q=>q.type==='dungeon'&&avg>=3+q.floor*1.5&&G.dungeons.some(d=>d.id===q.dun));
+  const qd=qs.find(q=>q.type==='dungeon'&&avg>=1.5+q.floor*1.3&&G.dungeons.some(d=>d.id===q.dun));
+  const qh=qs.find(q=>q.type==='herbal'&&G.nests.some(n=>n.id===q.nest));
+  if(qh&&avg<10&&rnd()<.6) return {plan:'hunt',target:qh.nest,quest:qh};
   const qb=qs.find(q=>q.type==='buru'&&G.nests.some(n=>n.id===q.nest)&&(G.nests.find(n=>n.id===q.nest).danger<=avg/18+.15));
   if(qden&&rnd()<.7) return {plan:'den',target:qden.den,quest:qden};
-  if(qd&&rnd()<.6) return {plan:'dungeon',target:qd.dun,quest:qd};
+  if(qd&&rnd()<.75) return {plan:'dungeon',target:qd.dun,quest:qd};
+  if(qh&&rnd()<.5) return {plan:'hunt',target:qh.nest,quest:qh};
   if(qb&&rnd()<.6) return {plan:'hunt',target:qb.nest,quest:qb};
   const duns=G.dungeons.filter(d=>dist(d.x,d.y,t.cx,t.cy)<150);
-  if(duns.length&&avg>=3&&rnd()<.55){ const d=wpick(duns,d=>dungeonAppeal(d)/(1+dist(d.x,d.y,t.cx,t.cy)/40)); return {plan:'dungeon',target:d.id,quest:null}; }
+  if(duns.length&&avg>=2&&rnd()<.68){ const d=wpick(duns,d=>dungeonAppeal(d)/(1+dist(d.x,d.y,t.cx,t.cy)/40)); return {plan:'dungeon',target:d.id,quest:null}; }
   const nests=G.nests.filter(n=>!n.legend||avg>=24).sort((a,b)=>dist(a.x,a.y,t.cx,t.cy)-dist(b.x,b.y,t.cx,t.cy)); const ok=nests.filter(n=>n.danger<=avg/20+.1);
   const n=ok[0]||nests[0]; return n?{plan:'hunt',target:n.id,quest:null}:null;
 }
@@ -3275,11 +3280,12 @@ function formParties(t){
     const pl=pickPlan(p,t,ready); if(!pl) continue;
     p.plan=pl.plan; p.target=pl.target; p.quest=pl.quest?pl.quest.id:null; p.state='go'; p.arrived=false; p.kills=0; p.floor=0; p.lastOut=G.step; p.done=[]; p.out=ready.map(m=>m.id);
     if(pl.quest){ pl.quest.taker=p.id; const r=U(t.guildRecep); if(r) FX_QUEUE.push({k:'talk',x:r.x,y:r.y-22,t:60}); }
+    mercHire(p,t,ready,pl);
     for(const m of ready){ m.task=null; m.path=[]; if(!bagHas(m,'hp')&&m.gold>=15&&!has(m,'Ceroboh')){ m.gold-=15; const kd=K(m.kingdom); if(kd) kd.treasury+=15; addItem(m,'hp',1); } }
     if(pl.ordered) log(`${pName(p)} berangkat menuruti mimpi ${U(p.orderBy)?.name||'salah satu anggotanya'}.`,'god',{x:(t.cx+1)*TS,y:(t.cy+1)*TS});
   }
   // 2. petualang bebas bergabung atau membentuk party
-  const pool=G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='petualang'&&!u.party&&partyHealthy(u)&&!wantsSolo(u));
+  const pool=G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='petualang'&&!u.party&&!u.flags.merc&&partyHealthy(u)&&!wantsSolo(u));
   pool.sort((a,b)=>b.lvl-a.lvl);
   for(const u of pool.slice()){
     const open=G.parties.filter(p=>p.town===t.id&&p.state==='rest'&&p.members.length<5&&!p.solo).find(p=>{ const mem=p.members.map(U).filter(Boolean); const avg=mem.reduce((s,m)=>s+m.lvl,0)/Math.max(1,mem.length); return Math.abs(u.lvl-avg)<=8&&!mem.some(m=>(m.rel[u.id]?.f||0)<-30); });
@@ -3325,7 +3331,7 @@ function partyStep(u,k){
   }
 }
 function partyReturn(p){
-  settleQuest(p);
+  settleQuest(p); mercRelease(p);
   p.state='rest'; p.record.outings++; p.record.kills+=p.kills; p.record.deepest=Math.max(p.record.deepest,p.floor||0);
   const back=(p.done||[]).filter(m=>m&&!m.dead);
   for(const m of back){ p.trust[m.id]=clamp((p.trust[m.id]||40)+(p.kills>0||p.floor>0?6:2),0,100); for(const o of back) if(o!==m){ const r=relOf(m,o.id); r.f=Math.min(100,r.f+4); } }
@@ -3338,9 +3344,10 @@ function partyReturn(p){
 }
 function settleQuest(p){
   if(!p.quest) return; const t=TN(p.town); if(!t||!t.quests) return; const q=t.quests.find(x=>x.id===p.quest); if(!q||q.done) return;
-  const ok=q.type==='buru'?p.kills>=q.n:q.type==='den'?!(G.dens||[]).some(d=>d.id===q.den):p.floor>=q.floor;
+  const ok=q.type==='herbal'?(p.done||[]).some(m=>m&&!m.dead):q.type==='buru'?p.kills>=q.n:q.type==='den'?!(G.dens||[]).some(d=>d.id===q.den):p.floor>=q.floor;
   if(!ok){ q.taker=null; return; }
   q.done=true; q.by=p.name; p.record.quests++;
+  if(q.type==='herbal'){ const pool=INGR_LIST.filter(x=>['herbal','jamur'].includes(INGR[x].c)); for(let i=0;i<q.n;i++) addIngr(t,pick(pool),1); }
   const mem=(p.done||[]).filter((v,i,a)=>v&&!v.dead&&a.indexOf(v)===i);
   const k=K(t.kingdom); const pay=Math.min(q.reward,Math.max(q.reward*.5,k?k.treasury:0)); if(k) k.treasury=Math.max(0,k.treasury-pay);
   for(const m of mem){ m.gold+=pay/Math.max(1,mem.length); gainXp(m,q.reward*.4); m.flags.quests=(m.flags.quests||0)+1; }
@@ -4055,7 +4062,7 @@ function guildRecruit(t,people){
 
 /* ---------- harian & tahunan ---------- */
 function daily6(){
-  daily11(); itemsDaily(); legendDaily(); allianceDaily(); daily10();
+  daily11(); itemsDaily(); daily13(); legendDaily(); allianceDaily(); daily10();
   for(const t of G.towns){ const people=G.units.filter(u=>!u.dead&&u.town===t.id&&u.race!=='monster'); pantryDaily(t,people); armorDaily(t); shopsDaily(t,people); guildRecruit(t,people); soloParties(t); }
   for(const u of G.units) if(!u.dead&&u.race!=='monster'&&tamerInfo(u)&&tamerInfo(u).share) recalcStats(u);
 }
@@ -4382,6 +4389,8 @@ function hqStep(u){
   const q=hvQuest(g); const lead=U(g.leader)&&!U(g.leader).dead?U(g.leader):g.members.map(U).find(v=>v&&!v.dead);
   if(!q||!lead){ hvDisband(g,false); return; }
   g.leader=lead.id;
+  if(g.state==='go'&&!g.ferryChecked){ g.ferryChecked=1; ferryAssign(g,q); }
+  if(ferryRide(u,g,q)) return;
   const t=hvTown();
   if(g.state==='back'){ const gb=t&&townBuildings(t,'guild').find(b=>b.done); const d=gb?bldDoor(gb):t?{x:(t.cx+1)*TS,y:(t.cy+2)*TS}:{x:u.x,y:u.y};
     if(u===lead){ if(dist(u.x,u.y,d.x,d.y)<22){ hvComplete(g,q); return; } if(!u.path.length) goTo(u,d.x,d.y+2); }
@@ -5201,7 +5210,7 @@ function shoppingDaily(t,people){
     if(rnd()>.5) continue;
     for(const [key,want] of wishList(u)){
       const have=bag(u)[key]||0; if(have>=want||!s[key]) continue;
-      const price=Math.round(ITEMS[key].p*(t.hunter?.9:1)); if(u.gold<price*1.2) continue;
+      const price=Math.round(ITEMS[key].p*(t.hunter?.9:1)); if(u.gold<price+25) continue;
       if(addItem(u,key,1)){ u.gold-=price; s[key]--; if(s[key]<=0) delete s[key]; if(alch) alch.gold+=price*.5; if(k) k.treasury+=price*.3; }
       else break;
     }
@@ -5282,7 +5291,7 @@ function eggQuestDaily(t){
   const need=G.units.filter(u=>!u.dead&&u.town===t.id&&u.flags.needEgg&&!u.flags.egg&&!u.hq&&isAdult(u));
   for(const u of need){
     if(hv.quests.some(q=>q.type==='egg'&&q.for===u.id&&!q.done)) continue;
-    const pool=BERKAT[u.b].n==='Hunter & Tamer'?EGG_POOL_HT:EGG_POOL;
+    const pool=BERKAT[u.b].n==='Hunter & Tamer'?EGG_POOL_HT:Object.keys(MON).filter(k=>tameable(k)&&RANK_ORDER.indexOf(MON[k].rank)<=Math.min(5,1+Math.floor(u.lvl/5)));
     const ns=G.nests.filter(n=>!n.legend&&n.pool.some(k=>pool.includes(k))&&dist(n.x,n.y,t.cx,t.cy)<120&&!legendNear((n.x+.5)*TS,(n.y+.5)*TS,30)).sort((a,b)=>dist(a.x,a.y,t.cx,t.cy)-dist(b.x,b.y,t.cx,t.cy));
     const n=ns[ri(0,Math.min(2,ns.length-1))]; if(!n) continue;
     const opts=n.pool.filter(k=>pool.includes(k)); const mk=opts.sort((a,b)=>RANK_ORDER.indexOf(MON[a].rank)-RANK_ORDER.indexOf(MON[b].rank))[Math.min(opts.length-1,Math.floor(u.lvl/12))];
@@ -5341,6 +5350,112 @@ function advYearly(){
     const n=Math.min(tg-have,ri(2,4)); const cs=advCandidates(t,people).slice(0,n);
     for(const u of cs){ u.career='petualang'; u.task=null; hist(u,`bertekad menjadi petualang di ${t.name}`); }
     if(cs.length&&rnd()<.5) log(`${cs.length} warga ${t.name} meletakkan cangkul dan mendaftar sebagai petualang. Wilayah itu butuh pelindung.`,'life',{x:(t.cx+1)*TS,y:(t.cy+1)*TS}); }
+}
+
+/* =====================================================================
+   SIMULASI 13: misi guild lebih beragam & fokus dungeon, petualang sewaan,
+   telur untuk semua monster jinak, Tamer pengantar grup Hunter
+   ===================================================================== */
+/* ---------- misi guild tambahan ---------- */
+function famNests(t,fam){ return G.nests.filter(n=>!n.legend&&dist(n.x,n.y,t.cx,t.cy)<120&&n.pool.some(k=>monFamily(k)===fam||MON[k].n.toLowerCase().includes(fam))); }
+function guildQuests2(t){
+  if(!hasDone(t,'guild')) return; t.quests=t.quests||[];
+  const open=t.quests.filter(q=>!q.done); if(open.length>=8||rnd()>.6) return;
+  const r=rnd(); let q=null;
+  const duns=G.dungeons.filter(d=>dist(d.x,d.y,t.cx,t.cy)<170);
+  if(r<.4&&duns.length){ const d=pick(duns); ensureFloors(d); const f=clamp((d.deep||0)+ri(1,3),1,d.maxFloor); q={type:'dungeon',dun:d.id,floor:f,reward:Math.round(25+f*f*7),text:`Eksplorasi ${d.name} sampai lantai ${f}`}; }
+  else if(r<.62){ let spot=null; for(let i=0;i<60&&!spot;i++){ const x=t.cx+ri(-34,34), y=t.cy+ri(-34,34); if(tileAt(x,y)===T.FOREST&&!inTownZone(x*TS,y*TS)) spot={x,y}; }
+    const n=spot&&G.nests.filter(n=>!n.legend).sort((a,b)=>dist(a.x,a.y,spot.x,spot.y)-dist(b.x,b.y,spot.x,spot.y))[0];
+    if(n){ const c=ri(4,8); q={type:'herbal',nest:n.id,n:c,reward:10+c*3,text:`Kumpulkan ${c} ikat herbal di hutan dekat ${n.name}`}; } }
+  else { const fams=[['slime','Slime'],['goblin','Goblin'],['orc','Orc'],['serigala','Serigala'],['mayat','mayat hidup']].sort(()=>rnd()-.5);
+    for(const [f,nm] of fams){ const ns=famNests(t,f); if(ns.length){ const n=ns[0]; const c=ri(3,6); q={type:'buru',nest:n.id,n:c,fam:f,reward:Math.round(14+c*6*(1+(n.danger||1))),text:`Bantai ${c} ${nm} di ${n.name}`}; break; } } }
+  if(q&&!t.quests.some(o=>!o.done&&o.text===q.text)){ q.id=newId(); q.posted=yearInt(); q.taker=null; t.quests.push(q); }
+}
+/* ---------- petualang sewaan di guild (rank C–A) ---------- */
+const MERC_RANK=[['C',15,45],['B',22,90],['A',30,160]];
+function mercPrice(u){ const r=rankOf(u.lvl); const m=MERC_RANK.find(x=>x[0]===r); return m?m[2]:r==='S'?260:30; }
+function mercDaily(t){
+  if(!hasDone(t,'guild')) return;
+  const mercs=G.units.filter(u=>!u.dead&&u.flags.merc&&u.town===t.id);
+  if(mercs.length>=3||rnd()>.03) return;
+  const [rk,lv]=MERC_RANK[rnd()<.5?0:rnd()<.7?1:2];
+  const gb=townBuildings(t,'guild').find(b=>b.done); const d=gb?bldDoor(gb):{x:(t.cx+1)*TS,y:(t.cy+2)*TS};
+  const race=rnd()<.6?t.race||'manusia':pick(['manusia','elf','dwarf','beastkin']);
+  const b=pick(BERKAT.map((x,i)=>i).filter(i=>COMBAT_ROLES.has(BERKAT[i].role)&&BERKAT[i].s<=3&&!BERKAT[i].uniq));
+  const u=makeUnit({race,age:ri(24,40),sex:rnd()<.6?'m':'f',x:d.x+ri(-10,10),y:d.y+4,gold:30,b,lvl:lv+ri(0,4),town:t.id,kingdom:t.kingdom});
+  u.revealed=true; u.career='petualang'; u.flags.merc=1; u.title='Petualang Sewaan'; const tent=G.blds.find(x=>x.town===t.id&&x.type==='tenda')||G.blds.find(x=>x.town===t.id&&x.type==='istana'); u.home=tent?tent.id:null;
+  addItem(u,'hp',2); addItem(u,'flash',1);
+  log(`Seorang petualang sewaan peringkat ${rankOf(u.lvl)}, ${u.name}, mendaftar di Balai Guild ${t.name}. Tarifnya ${mercPrice(u)} emas per misi.`,'life',{x:u.x,y:u.y});
+}
+function mercHire(p,t,ready,pl){
+  if(p.solo||!hasDone(t,'guild')) return;
+  const avg=ready.reduce((s,m)=>s+m.lvl,0)/ready.length;
+  const need=pl.plan==='dungeon'?(pl.quest?3+pl.quest.floor*1.8:avg+4):pl.plan==='den'?12:avg+2;
+  const weak=ready.length<3||avg<need;
+  if(!weak||p.members.length>=5) return;
+  const purse=ready.reduce((s,m)=>s+m.gold,0);
+  const mercs=G.units.filter(u=>!u.dead&&u.flags.merc&&u.town===t.id&&!u.party&&partyHealthy(u)).sort((a,b)=>b.lvl-a.lvl);
+  const adv=pl.quest?pl.quest.reward*.6:0;
+  const m=mercs.find(x=>mercPrice(x)<=purse*.6+adv); if(!m) return;
+  let price=mercPrice(m); for(const r of ready){ const pay=Math.min(r.gold,price/ready.length*1.3); r.gold-=pay; price-=pay; if(price<=0) break; }
+  if(price>0&&pl.quest){ pl.quest.reward=Math.max(5,Math.round(pl.quest.reward-price)); plog(p,`Sisa biaya sewa (${Math.round(price)} emas) dipotong dari hadiah quest.`); }
+  m.gold+=mercPrice(m)*.8; const k=K(t.kingdom); if(k) k.treasury+=mercPrice(m)*.2;
+  p.members.push(m.id); m.party=p.id; p.trust[m.id]=40; p.out=(p.out||ready.map(x=>x.id)).concat(m.id); m.flags.hiredBy=p.id; m.task=null; m.path=[];
+  plog(p,`Menyewa ${m.name} (peringkat ${rankOf(m.lvl)}) dari Balai Guild seharga ${mercPrice(m)} emas.`); hist(m,`disewa party ${p.name}`);
+  if(rnd()<.5) log(`${pName(p)} merasa kurang kuat dan menyewa ${m.name}, petualang sewaan peringkat ${rankOf(m.lvl)}, untuk misi kali ini.`,'life',{x:m.x,y:m.y});
+}
+function mercRelease(p){
+  for(const id of p.members.slice()){ const m=U(id); if(m&&m.flags.hiredBy===p.id){ m.flags.hiredBy=null; m.flags.mercJobs=(m.flags.mercJobs||0)+1; partyLeave(p,m,'kontrak sewaan selesai'); } }
+}
+/* ---------- telur: semua monster yang bisa dijinakkan ---------- */
+function tameable(k){ const m=MON[k]; return m&&m.beast&&!m.legend&&!m.demon&&!m.sea&&k!=='neko'&&RANK_ORDER.indexOf(m.rank)<=5; }
+function eggBuyDaily(t){
+  for(const u of G.units){ if(u.dead||u.town!==t.id||!u.flags.needEgg||u.flags.egg||u.hq) continue;
+    if(rnd()>.04) continue;
+    const opts=Object.keys(MON).filter(k=>tameable(k)&&RANK_ORDER.indexOf(MON[k].rank)<=Math.min(3,Math.floor(u.lvl/6)));
+    if(!opts.length) continue; const k=pick(opts); const price=Math.round(40+RANK_ORDER.indexOf(MON[k].rank)*35);
+    if(u.gold<price) continue; u.gold-=price; hvFund(price*.5);
+    u.flags.egg={mk:k,hatch:G.step+Math.round(DAY*ri(3,6))}; hist(u,`membeli telur ${MON[k].n} di pasar Hunter Village`);
+    log(`${u.name} tidak sabar menunggu misi telur dan membeli telur ${MON[k].n} di pasar Hunter Village seharga ${price} emas.`,'life',{x:u.x,y:u.y});
+  }
+}
+/* ---------- Tamer mengantar grup Hunter ke lokasi misi ---------- */
+function ferryAssign(g,q){
+  if(g.ferry!==undefined||q.type==='ekspedisi') return; g.ferry=null;
+  const t=hvTown(); if(!t) return;
+  const tm=G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='kurir'&&u.mountMon&&!u.hq&&!u.downed&&!u.inside&&!(u.task&&u.task.k==='courier'&&u.task.phase==='go')&&!g.members.includes(u.id)).sort((a,b)=>dist(a.x,a.y,(t.cx+1)*TS,(t.cy+1)*TS)-dist(b.x,b.y,(t.cx+1)*TS,(t.cy+1)*TS))[0];
+  if(!tm) return;
+  g.ferry=tm.id; tm.flags.ferry=g.id; tm.task={k:'ferry'}; tm.path=[]; tm.cart=true;
+  const fee=12+g.members.length*4; const pay=g.members.map(U).filter(Boolean); for(const m of pay) m.gold=Math.max(0,m.gold-fee/pay.length); tm.gold+=fee; tm.flags.ferries=(tm.flags.ferries||0)+1;
+  FX_QUEUE.push({k:'say',x:tm.x,y:tm.y-26,t:50,s:'Naik!'});
+}
+/* dipanggil di awal hqStep; true = anggota ini sedang menumpang */
+function ferryRide(u,g,q){
+  if(g.state!=='go'||!g.ferry) return false;
+  const tm=U(g.ferry); if(!tm||tm.dead||tm.downed){ g.ferry=null; return false; }
+  const i=g.members.indexOf(u.id);
+  if(!g.boarded){ // kumpul dulu di dekat tamer
+    const all=g.members.map(U).filter(v=>v&&!v.dead);
+    if(all.every(v=>dist(v.x,v.y,tm.x,tm.y)<26)) g.boarded=G.step;
+    else { if(dist(u.x,u.y,tm.x,tm.y)>20&&(!u.path.length||G.step%20===0)) goTo(u,tm.x-8,tm.y+2); u.task={k:'hq'}; if(G.step-(g.started||G.step)>DAY*.4) g.boarded=G.step; return true; }
+  }
+  u.path=[]; u.moving=false; u.inside=false; u.x=tm.x+(tm.flip?14:-14)-(i%2)*4; u.y=tm.y-2-Math.floor(i/2)*2; u.flip=tm.flip; u.flags.riding=tm.id; u.task={k:'hq'};
+  return true;
+}
+function ferryStep(tm){
+  const g=G.hv&&G.hv.groups.find(x=>x.id===tm.flags.ferry); const q=g&&hvQuest(g);
+  if(!g||!q||g.state!=='go'){ ferryEnd(tm,g); return; }
+  tm.task={k:'ferry'};
+  if(!g.boarded){ tm.path=[]; tm.moving=false; return; }
+  const tg=hvTarget(g,q); if(!tg){ ferryEnd(tm,g); return; }
+  if(dist(tm.x,tm.y,tg.x,tg.y)<34){ for(const id of g.members){ const v=U(id); if(v){ v.flags.riding=null; v.x=tm.x+ri(-10,10); v.y=tm.y+ri(2,8); } } g.ferry=null;
+    FX_QUEUE.push({k:'say',x:tm.x,y:tm.y-26,t:50,s:'Sampai! Hati-hati!'}); ferryEnd(tm,g); return; }
+  if(!tm.path.length||G.step%40===0) goTo(tm,tg.x+ri(-6,6),tg.y+ri(-4,4));
+}
+function ferryEnd(tm,g){ tm.flags.ferry=null; tm.task=null; tm.path=[]; if(g) for(const id of g.members){ const v=U(id); if(v) v.flags.riding=null; } const t=TN(tm.town); if(t) goTo(tm,(t.cx+1)*TS+ri(-20,20),(t.cy+2)*TS); }
+function daily13(){
+  for(const t of G.towns){ guildQuests2(t); mercDaily(t); }
+  const ht=hvTown&&hvTown(); if(ht) eggBuyDaily(ht);
 }
 
 /* ================= SPRITE PIKSEL ================= */
@@ -7754,6 +7869,8 @@ function unitExtra9(u){
   if(u.flags.needEgg) h+=`<dt>Tunggangan</dt><dd>${u.flags.egg?`Mengerami telur ${esc(MON[u.flags.egg.mk].n)} (menetas ±${Math.max(0,Math.ceil((u.flags.egg.hatch-G.step)/DAY))} hari)`:'Belum punya. Harus mencari telur monster bersama para Hunter.'}</dd>`;
   else if(u.mountMon&&u.flags.mountName) h+=`<dt>Nama tunggangan</dt><dd>${esc(u.flags.mountName)}</dd>`;
   if(u.maps&&Object.keys(u.maps).length) h+=`<dt>Peta dikuasai</dt><dd>${Object.entries(u.maps).map(([id,f])=>{ const d=G.dungeons.find(x=>x.id===+id); return d?`${esc(d.name)} (lt ${f})`:''; }).filter(Boolean).join(', ')}</dd>`;
+  if(u.flags.merc) h+=`<dt>Sewaan</dt><dd>Tarif ${mercPrice(u)} emas per misi (peringkat ${rankOf(u.lvl)})${u.flags.mercJobs?` · ${u.flags.mercJobs} kontrak selesai`:''}${u.flags.hiredBy?' · sedang disewa':''}</dd>`;
+  if(u.flags.ferries) h+=`<dt>Antar Hunter</dt><dd>${u.flags.ferries} kali mengantar grup Hunter${u.flags.ferry?' · sedang mengantar':''}</dd>`;
   if(u.flags.origin) h+=`<dt>Asal</dt><dd>${esc(u.flags.origin)} (datang dengan kapal)</dd>`;
   if(u.flags.allyWins) h+=`<dt>Perburuan aliansi</dt><dd>${u.flags.allyWins} kemenangan</dd>`;
   if(u.flags.haul) h+=`<dt>Tugas Tamer</dt><dd>${u.flags.haul.phase==='go'?'Menjemput':'Menyeret'} bangkai ${esc(MON[u.flags.haul.mk].n)} ke ${esc(BLD.lelang.n)}</dd>`;
