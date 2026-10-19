@@ -5969,28 +5969,32 @@ const NEW_WORLDS=[
   {n:'Rimba Seribu Sarang',d:'Rimba lebat dengan sarang monster di setiap pohon.',mons:['queenBee','bee','martialTiger','agrooBird','spider'],c:'#2a5a2a'},
 ];
 const LEVELS=['Perkemahan','Desa Kayu','Desa Berpagar','Benteng Kecil','Kota Koloni'];
-function voyageYearly(){
+function voyageYearly(){}
+function startVoyage(wx,wy){
   G.colonies=G.colonies||[]; G.sailing=G.sailing||[];
-  if(yearInt()<8||G.colonies.filter(c=>!c.lost).length>=3||G.sailing.some(s=>s.crew)||rnd()>.18) return;
+  if(G.sailing.some(s=>s.crew&&!s.ret)) return 'Masih ada kapal perantau yang sedang berlayar.';
   const ks=G.kingdoms.filter(k=>k.alive&&!k.hunter&&TN(k.capital)&&coastPoint(TN(k.capital)));
-  const k=pick(ks); if(!k) return; const t=TN(k.capital);
+  if(!ks.length) return 'Tidak ada ibu kota kerajaan yang dekat pantai.';
+  const k=ks.sort((a,b)=>dist((TN(a.capital).cx+1)*TS,(TN(a.capital).cy+1)*TS,wx,wy)-dist((TN(b.capital).cx+1)*TS,(TN(b.capital).cy+1)*TS,wx,wy))[0]; const t=TN(k.capital);
   const ppl=G.units.filter(u=>!u.dead&&u.town===t.id&&u.race!=='monster'&&!u.royal&&!u.flags.istana&&!u.captive&&!u.party&&!u.flags.merc&&!u.flags.abroad);
-  if(ppl.length<40) return;
+  if(ppl.length<12) return `${t.name} terlalu sepi untuk melepas perantau.`;
   const want=u=>isAdult(u)&&stageOf(u)==='dewasa'&&(has(u,'Jiwa Petualang')||has(u,'Ambisius')||has(u,'Pemberani')||has(u,'Sok MC')||(u.happy||60)<45||u.kelas==='bawah'&&rnd()<.15);
   const heads=ppl.filter(want).sort(()=>rnd()-.5); const crew=new Set();
   for(const h of heads){ if(crew.size>=ri(10,16)) break; crew.add(h); const sp=U(h.spouse); if(sp&&!sp.dead&&sp.town===t.id&&!sp.royal) crew.add(sp); for(const c of h.children.map(U)) if(c&&!c.dead&&!isAdult(c)&&c.town===t.id) crew.add(c); }
-  if(crew.size<6) return;
+  if(crew.size<6){ for(const u of ppl.filter(isAdult).sort(()=>rnd()-.5)){ if(crew.size>=8) break; crew.add(u); } }
+  if(crew.size<4) return `Tidak cukup warga ${t.name} yang mau berlayar.`;
   const leader=[...crew].filter(isAdult).sort((a,b)=>leaderScore(b)-leaderScore(a))[0];
   const W=pick(NEW_WORLDS); const cp=coastPoint(t);
   let shore=null; for(let r=0;r<6&&!shore;r++) for(let dy=-r;dy<=r&&!shore;dy++) for(let dx=-r;dx<=r&&!shore;dx++) if(isLand(tileAt(cp.x+dx,cp.y+dy))) shore={x:(cp.x+dx+.5)*TS,y:(cp.y+dy+.5)*TS};
-  if(!shore) return;
+  if(!shore) return 'Pantainya tidak bisa didarati kapal.';
   // arah laut lepas: menjauh dari pusat daratan
   const ex=(cp.x+.5)*TS, ey=(cp.y+.5)*TS; let vx=ex-(t.cx+1)*TS, vy=ey-(t.cy+1)*TS; const L=Math.hypot(vx,vy)||1; vx/=L; vy/=L;
   const tx=clamp(ex+vx*MW*TS,-40,MW*TS+40), ty=clamp(ey+vy*MH*TS,-40,MH*TS+40);
   const ship={id:newId(),x:ex,y:ey,tx,ty,mode:'wait',crew:[...crew].map(u=>u.id),leader:leader.id,from:k.id,town:t.id,world:W.n,shore,start:G.step,name:`Kapal ${pick(['Harapan','Fajar','Bintang Laut','Pengembara','Camar Putih'])}`};
   G.sailing.push(ship);
   for(const u of crew){ u.flags.voyage=ship.id; u.task=null; u.path=[]; }
-  log(`${fullName(leader)} memimpin ${crew.size} warga ${t.name} yang ingin memulai hidup baru. Mereka berkumpul di pantai, siap berlayar dengan ${ship.name} menuju ${W.n}, benua yang hanya dihuni monster.`,'hero',{x:shore.x,y:shore.y});
+  log(`Sebuah mimpi dari langit menggerakkan hati mereka. ${fullName(leader)} memimpin ${crew.size} warga ${t.name} yang ingin memulai hidup baru. Mereka berkumpul di pantai, siap berlayar dengan ${ship.name} menuju ${W.n}, benua yang hanya dihuni monster.`,'hero',{x:shore.x,y:shore.y});
+  return null;
 }
 function voyageTask(u){
   const s=(G.sailing||[]).find(x=>x.id===u.flags.voyage); if(!s||s.mode!=='wait'){ if(!s) u.flags.voyage=null; return false; }
@@ -7527,7 +7531,7 @@ const $=id=>document.getElementById(id);
 const TOOLS=[
   {id:'lihat',g:'◎',n:'Lihat'},{id:'rasuki',g:'⚇',n:'Rasuki'},{id:'warga',g:'☺',n:'Warga Baru'},{id:'suku',g:'❂',n:'Suku Baru'},
   {id:'monster',g:'☠',n:'Monster'},{id:'berkah',g:'✦',n:'Berkah Lv'},{id:'hujan',g:'☂',n:'Hujan'},{id:'petir',g:'ϟ',n:'Petir'},
-  {id:'meteor',g:'☄',n:'Meteor'},{id:'dungeon',g:'◆',n:'Dungeon'},{id:'mimpi',g:'☾',n:'Mimpi'},{id:'kapal',g:'⚓',n:'Kapal Hunter'},
+  {id:'meteor',g:'☄',n:'Meteor'},{id:'dungeon',g:'◆',n:'Dungeon'},{id:'mimpi',g:'☾',n:'Mimpi'},{id:'kapal',g:'⚓',n:'Kapal Hunter'},{id:'layar',g:'⛵',n:'Kirim Perantau'},
 ];
 const HINT={lihat:'Ketuk warga, bangunan, atau dungeon.',rasuki:'Ketuk seorang warga untuk merasukinya.',warga:'Pilih ras, lalu ketuk lokasi.',suku:'Pilih ras, lalu ketuk tanah lapang yang jauh dari kota.',monster:'Pilih monster, lalu ketuk lokasi.',berkah:'Ketuk warga untuk menaikkan levelnya.',hujan:'Ketuk dekat kota.',petir:'Ketuk sasaran.',meteor:'Ketuk lokasi jatuh.',dungeon:'Ketuk lokasi pintu dungeon.',kapal:'Ketuk dekat pantai sebuah kerajaan untuk memanggil kapal para Hunter (fitur opsional, sekali saja).',mimpi:'Malam hari: ketuk seorang warga untuk masuk ke mimpinya. Orang dunia lain bisa diajak bicara kapan saja.'};
 
@@ -7582,6 +7586,7 @@ function onTap(wx,wy){
   if(t==='hujan'){ const tw=nearestTownTo(wx,wy,50); if(!tw){ toast('Ketuk dekat kota.'); return; } tw.stock.food+=tw.pop*6+60; FX_QUEUE.push({k:'rain',x:(tw.cx+1)*TS,y:(tw.cy+1)*TS,t:200}); log(`Langit menurunkan hujan berkah di ${tw.name}. Rakyat bertanya-tanya dewa mana yang bermurah hati.`,'god',{x:(tw.cx+1)*TS,y:(tw.cy+1)*TS}); return; }
   if(t==='petir'){ const v=gmLightning(wx,wy); if(v&&UI.sel&&UI.sel.id===v.id) UI.pdirty=true; return; }
   if(t==='meteor'){ meteorAt(wx,wy,'Sang Dewa'); return; }
+  if(t==='layar'){ const e=startVoyage(wx,wy); toast(e||'Para perantau berkumpul di pantai. Kapal akan segera berangkat ke dunia lain.'); if(!e){ const s=G.sailing[G.sailing.length-1]; centerOn(s.x,s.y,Math.max(R_.cam.z,2.2)); } setTool('lihat'); return; }
   if(t==='kapal'){ const e=summonHunterShip(wx,wy); toast(e||'Kapal Hunter terlihat di cakrawala.'); if(!e){ const s=G.hv.ship; centerOn(s.x,s.y,Math.max(R_.cam.z,2.2)); } setTool('lihat'); return; }
   if(t==='mimpi'){ const s=pickAt(wx,wy); const u=s&&s.type==='unit'?U(s.id):null; if(!u||u.race==='monster'||u.dead){ toast('Ketuk seorang warga.'); return; } const e=openDream(u); if(e) toast(e); return; }
   if(t==='dungeon'){ const tx=Math.floor(wx/TS), ty=Math.floor(wy/TS); if(!isLand(tileAt(tx,ty))){ toast('Pilih daratan.'); return; } if(townOfPx(wx,wy)){ toast('Terlalu dekat dengan kota.'); return; } placeDungeon(false,{x:tx,y:ty}); return; }
@@ -8610,6 +8615,7 @@ function arenaPanel(bd){
 }
 
 /* ---------- dunia lain: daftar koloni & penonton koloni ---------- */
+HINT.layar="Ketuk dekat ibu kota kerajaan di tepi pantai. Sebagian warganya akan berlayar ke dunia lain yang hanya dihuni monster.";
 function colonyHtml(k){
   const cs=(G.colonies||[]).filter(c=>c.from===k.id); const sail=(G.sailing||[]).filter(s=>s.from===k.id&&!s.ret);
   let h='';
