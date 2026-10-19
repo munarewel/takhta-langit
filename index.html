@@ -1109,9 +1109,12 @@ function chooseTask(u){
   if(u.flags.hvWait&&hvWaitTask(u)) return;
   if(u.flags.haul){ haulStep(u); if(u.task) return; }
   if(u.flags.ferry){ u.task={k:'ferry'}; return; }
+  if(u.flags.bsTrip){ bsStep(u); if(u.task) return; }
+  if(u.flags.bsEscort){ bsEscortStep(u); if(u.task) return; }
   if(u.ally){ allyStep(u); if(u.task) return; }
   if(u.hq&&!isNight()){ u.task={k:'hq'}; return; }
   if(libraryTask(u)) return;
+  if(towerTask(u)) return;
   if(u.dungeonLord){ u.inside=true; u.task={k:'idle',t:200}; return; }
   if(u.flags.murder&&isNight()&&isAdult(u)&&murderTask(u)) return;
   if(t&&alarmOn(t)&&!canFight(u)&&home){ const d=bldDoor(home); goTo(u,d.x,d.y); u.task={k:'sleep'}; return; }
@@ -1434,6 +1437,9 @@ function runTask(u){
     case 'ally': allyStep(u); break;
     case 'ferry': if(u.flags.ferry) ferryStep(u); else u.task=null; break;
     case 'read': readStep(u,k); break;
+    case 'tower': towerStep(u,k); break;
+    case 'bsum': bsStep(u); break;
+    case 'bsesc': bsEscortStep(u); break;
     case 'haul': haulStep(u); break;
     case 'courier': courierStep(u,k); break;
     case 'bath': bathStep(u,k); break;
@@ -5454,8 +5460,118 @@ function ferryStep(tm){
 }
 function ferryEnd(tm,g){ tm.flags.ferry=null; tm.task=null; tm.path=[]; if(g) for(const id of g.members){ const v=U(id); if(v) v.flags.riding=null; } const t=TN(tm.town); if(t) goTo(tm,(t.cx+1)*TS+ri(-20,20),(t.cy+2)*TS); }
 function daily13(){
+  towerDaily();
   for(const t of G.towns){ guildQuests2(t); mercDaily(t); }
   const ht=hvTown&&hvTown(); if(ht) eggBuyDaily(ht);
+}
+
+/* =====================================================================
+   SIMULASI 14: Menara Ujian (tempat latihan 100 lantai milik kerajaan),
+   Black Summoner pengisi monster, latihan tanpa kematian
+   ===================================================================== */
+BLD.menara={n:'Menara Ujian',w:6,h:6,work:1600,wood:40,stone:60};
+const TW_FLOORS=100;
+function twRankOfFloor(f){ return f<=15?'F':f<=30?'E':f<=45?'D':f<=60?'C':f<=75?'B':f<=95?'A':f<=97?'S':f<=99?'SS':'SSS'; }
+function tower(t){ if(!t.tower) t.tower={stock:{},best:null,runs:0,log:[],sumLog:[]}; return t.tower; }
+function twLog(t,s){ const w=tower(t); w.log.unshift(`Th ${yearInt()}: ${s}`); if(w.log.length>14) w.log.pop(); }
+function twStockTotal(t){ return Object.values(tower(t).stock).reduce((a,b)=>a+b,0); }
+function twBld(t){ return townBuildings(t,'menara').find(b=>b.done); }
+/* bangun menara di ibu kota yang sudah punya Balai Guild */
+function towerDaily(){
+  for(const t of G.towns){
+    if(t.hunter||K(t.kingdom)?.capital!==t.id) continue;
+    if(!townBuildings(t,'menara').length&&hasDone(t,'guild')&&yearInt()>=2&&rnd()<.08){ const s=freeSlot(t)||findSpot(t,6,6); if(s){ addBuilding(t,'menara',s); log(`${K(t.kingdom).name} mulai membangun Menara Ujian di ${t.name}: seratus lantai tempat para petualang berlatih melawan monster tanpa taruhan nyawa.`,'life',{x:(s.x+3)*TS,y:(s.y+3)*TS}); } }
+    if(!twBld(t)) continue;
+    const w=tower(t); if(!w.seeded){ w.seeded=1; Object.assign(w.stock,{F:18,E:12,D:8,C:4}); twLog(t,'Menara Ujian dibuka. Penyegel kerajaan mengisi lantai-lantai awal dengan monster lemah.'); }
+    blackSummonerDaily(t);
+  }
+}
+/* ---------- Black Summoner ---------- */
+function blackSummonerDaily(t){
+  const w=tower(t); let bs=U(w.summoner);
+  if(!bs||bs.dead||bs.town!==t.id){
+    const people=G.units.filter(u=>!u.dead&&u.town===t.id&&isAdult(u)&&!u.royal&&!u.party&&!u.flags.istana&&stageOf(u)!=='tua');
+    bs=people.filter(u=>roleOf(u)==='penyihir'||tamerInfo(u)).sort((a,b)=>b.lvl-a.lvl)[0]||people.filter(u=>u.career==='kerja').sort((a,b)=>(b.iq||100)-(a.iq||100))[0];
+    if(!bs) return; w.summoner=bs.id; bs.title='Black Summoner'; bs.career='kerja'; bs.jobOverride=null; bs.flags.blackSum=1; hist(bs,`diangkat menjadi Black Summoner Menara Ujian ${t.name}`);
+    log(`${fullName(bs)} diangkat menjadi Black Summoner. Tugasnya memburu monster di seluruh negeri lalu memanggilnya ke dalam Menara Ujian ${t.name}.`,'god',{x:bs.x,y:bs.y});
+  }
+  // beli telur S–SSS dari Hunter Village bila kerajaan kaya
+  const k=K(t.kingdom); const ht=hvTown&&hvTown();
+  if(ht&&k&&rnd()<.02){ const opts=[['S',500],['SS',1100],['SSS',2400]].filter(([r,p])=>k.treasury>p*1.6&&(w.stock[r]||0)<3); const o=opts.length?opts[opts.length-1]:null;
+    if(o){ k.treasury-=o[1]; hvFund(o[1]*.8); w.stock[o[0]]=(w.stock[o[0]]||0)+1; twLog(t,`${bs.name} membeli telur monster ${o[0]} dari Hunter Village (${o[1]} emas) untuk lantai teratas.`);
+      log(`${bs.name}, Black Summoner ${t.name}, membeli telur monster peringkat ${o[0]} dari Hunter Village untuk lantai teratas Menara Ujian.`,'life',{x:bs.x,y:bs.y}); } }
+  if(bs.flags.bsTrip||twStockTotal(t)>=160||rnd()>.3) return;
+  // cari pendamping: Veteran Petualang
+  const vet=G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='petualang'&&!u.party&&!u.flags.merc&&partyHealthy(u)&&isAdult(u)).sort((a,b)=>b.lvl+ageOf(b)*.3-(a.lvl+ageOf(a)*.3))[0];
+  // tujuan: sarang & markas monster (markas goblin/orc memberi lebih banyak)
+  const targets=G.nests.filter(n=>!n.legend&&!legendNear((n.x+.5)*TS,(n.y+.5)*TS,30)).map(n=>({x:n.x,y:n.y,pool:n.pool,mult:1,name:n.name})).concat((G.dens||[]).map(d=>({x:d.x,y:d.y,pool:[d.kind==='orc'?'orc':'goblin'],mult:2.2,name:d.name,den:1})));
+  const near=targets.filter(o=>dist(o.x,o.y,t.cx,t.cy)<110).sort((a,b)=>b.mult-a.mult||dist(a.x,a.y,t.cx,t.cy)-dist(b.x,b.y,t.cx,t.cy));
+  const tg=near[ri(0,Math.min(3,near.length-1))]; if(!tg) return;
+  bs.flags.bsTrip={x:tg.x,y:tg.y,pool:tg.pool,mult:tg.mult,name:tg.name,phase:'go',vet:vet?vet.id:null,until:G.step+DAY*3};
+  if(vet){ vet.flags.bsEscort=bs.id; vet.task=null; vet.path=[]; }
+  bs.task=null; bs.path=[];
+}
+function bsStep(u){
+  const tr=u.flags.bsTrip; const t=TN(u.town); if(!tr||!t){ u.flags.bsTrip=null; u.task=null; return; }
+  u.task={k:'bsum'}; const vet=U(tr.vet);
+  if(G.step>tr.until) tr.phase='back';
+  if(tr.phase==='go'){ const x=(tr.x+.5)*TS, y=(tr.y+1.5)*TS; if(dist(u.x,u.y,x,y)<26){ tr.phase='do'; tr.doUntil=G.step+Math.round(DAY*.3); } else if(!u.path.length||G.step%40===0) goTo(u,x,y); return; }
+  if(tr.phase==='do'){
+    if(G.step%30===0){ FX_QUEUE.push({k:'nova',x:u.x,y:u.y-8,r:26,c:'#7a2aaa',t:30,ring:1}); FX_QUEUE.push({k:'say',x:u.x,y:u.y-28,t:30,s:'Kurung!'}); }
+    if(G.step>=tr.doUntil){ const w=tower(t); const pool=tr.pool.filter(k=>MON[k]&&RANK_ORDER.indexOf(MON[k].rank)<=5); const n=Math.round(ri(6,11)*tr.mult*(vet&&!vet.dead?1.3:1)*(1+u.lvl/40)); const got={};
+      for(let i=0;i<n&&pool.length;i++){ const k=pick(pool); const r=MON[k].rank; w.stock[r]=(w.stock[r]||0)+1; got[r]=(got[r]||0)+1; }
+      // monster dekat ikut tersegel
+      for(const m of near(u.x,u.y,60,v=>v.race==='monster'&&!v.tamer&&!v.dead&&RANK_ORDER.indexOf(MON[v.mk].rank)<=5&&!MON[v.mk].legend).slice(0,3)){ const r=MON[m.mk].rank; w.stock[r]=(w.stock[r]||0)+1; got[r]=(got[r]||0)+1; m.dead=true; }
+      const txt=Object.entries(got).map(([r,c])=>`${c} ${r}`).join(', ');
+      if(txt){ twLog(t,`${u.name}${vet?` dan ${vet.name}`:''} menyegel monster dari ${tr.name}: ${txt}.`); gainXp(u,6); if(vet) gainXp(vet,8); u.flags.sealed=(u.flags.sealed||0)+n; }
+      tr.phase='back'; }
+    return; }
+  const b=twBld(t); const d=b?bldDoor(b):{x:(t.cx+1)*TS,y:(t.cy+2)*TS};
+  if(dist(u.x,u.y,d.x,d.y)<20){ u.flags.bsTrip=null; u.task=null; if(vet){ vet.flags.bsEscort=null; vet.task=null; } FX_QUEUE.push({k:'pillar',x:d.x,y:d.y-6,s:3,t:40}); return; }
+  if(!u.path.length||G.step%40===0) goTo(u,d.x,d.y);
+}
+function bsEscortStep(v){
+  const bs=U(v.flags.bsEscort); if(!bs||bs.dead||!bs.flags.bsTrip){ v.flags.bsEscort=null; v.task=null; return; }
+  v.task={k:'bsesc'};
+  if(dist(v.x,v.y,bs.x,bs.y)>18&&(!v.path.length||G.step%15===0)) goTo(v,bs.x+ri(-10,10),bs.y+ri(2,8));
+  const e=nearest(bs.x,bs.y,60,m=>isHostile(v,m)); if(e&&(G.step+v.id)%6===0) v.task={k:'fight',target:e.id};
+}
+/* ---------- latihan petualang ---------- */
+function towerTask(u){
+  if(u.career!=='petualang'||u.party&&partyOf(u)?.state!=='rest'||u.flags.bsEscort||isNight()||rnd()>.15) return false;
+  const t=TN(u.town); if(!t) return false; const b=twBld(t); if(!b||twStockTotal(t)<3) return false;
+  const d=bldDoor(b); goTo(u,d.x+ri(-6,6),d.y+2); u.task={k:'tower',b:b.id,phase:'walk'}; return true;
+}
+function twPlan(u,t){
+  const w=tower(t); const start=Math.max(1,(u.flags.twBest||0)-ri(2,6)); const fl=[]; let f=start; let alive=true;
+  const pw=u.lvl*Math.sqrt(starMult(u))*(1+wAtk(u.weapon)/80)*(bagHas(u,'hp')?1.05:1);
+  for(let i=0;i<6&&alive&&f<=TW_FLOORS;i++,f++){
+    const r0=twRankOfFloor(f); let r=r0; if(!(w.stock[r]>0)){ const ri0=RANK_ORDER.indexOf(r0); r=RANK_ORDER.slice(ri0+1).find(x=>w.stock[x]>0)||null; }
+    if(!r){ fl.push({f,none:r0}); break; }
+    const n=Math.min(w.stock[r],r==='S'||r==='SS'||r==='SSS'?1:ri(1,3)); if(rnd()<.35){ w.stock[r]--; if(w.stock[r]<=0) delete w.stock[r]; }
+    const pool=Object.keys(MON).filter(k=>MON[k].rank===r&&!MON[k].sea&&!MON[k].demon&&k!=='neko'&&k!=='chaoticDragon'||r==='SSS'&&k==='chaoticDragon');
+    const mons=[]; for(let j=0;j<n;j++) mons.push(pick(pool.length?pool:['slime']));
+    const diff=f*.42; const p=1/(1+Math.exp((diff-pw)/2.4));
+    const win=rnd()<p; fl.push({f,mons,win}); if(!win) alive=false;
+  }
+  return {fl,i:0,el:0,FD:44,start};
+}
+function towerStep(u,k){
+  const b=B(k.b); const t=b&&TN(b.town); if(!b||!t){ u.task=null; u.inside=false; return; }
+  if(k.phase==='walk'){ const d=bldDoor(b); if(dist(u.x,u.y,d.x,d.y)<16){ k.phase='in'; u.inside=true; k.s=twPlan(u,t); tower(t).runs++; } else if(!u.path.length) goTo(u,d.x,d.y+1); return; }
+  const s=k.s; s.el++;
+  const cur=s.fl[s.i]; if(!cur){ twFinish(u,t,k); return; }
+  if(cur.none){ if(s.el>=10){ s.endNote=`Lantai ${cur.f} kosong: belum ada monster peringkat ${cur.none}.`; twFinish(u,t,k); } return; }
+  if(s.el>=s.FD){ if(!cur.win){ twFinish(u,t,k); return; } s.i++; s.el=0; gainXp(u,4+cur.f*.5); if(cur.f>(u.flags.twBest||0)) u.flags.twBest=cur.f; }
+}
+function twFinish(u,t,k){
+  const s=k.s; const w=tower(t); const cleared=s.fl.filter((x,i)=>i<s.i&&x.win).length; const lost=s.fl[s.i]&&s.fl[s.i].win===false?s.fl[s.i]:null;
+  u.inside=false; u.task=null; const b=B(k.b); if(b){ const d=bldDoor(b); u.x=d.x+ri(-6,6); u.y=d.y+4; }
+  if(lost){ gainXp(u,2+lost.f*.3); u.hp=Math.max(1,Math.round(u.maxHp*.3)); FX_QUEUE.push({k:'say',x:u.x,y:u.y-26,t:50,s:'Tersingkir…'}); }
+  u.flags.twRuns=(u.flags.twRuns||0)+1;
+  const best=u.flags.twBest||0; if(!w.best||best>w.best.f){ const old=w.best; w.best={f:best,id:u.id,name:u.name}; if(best>=10&&(!old||best>=old.f+5)) log(`${fullName(u)} mencapai lantai ${best} Menara Ujian ${t.name}, rekor baru!`,'hero',{x:u.x,y:u.y}); }
+  twLog(t,`${u.name} (Lv ${u.lvl}) ${cleared?`menembus ${cleared} lantai`:'belum menembus lantai baru'}${lost?`, lalu tersingkir di lantai ${lost.f} oleh ${lost.mons.map(m=>MON[m].n).join(', ')} dan terlempar keluar`:''}.${s.endNote?' '+s.endNote:''}`);
+  u.flags.twLast={y:yearInt(),fl:s.fl,i:s.i};
 }
 
 /* ================= SPRITE PIKSEL ================= */
@@ -6341,7 +6457,7 @@ function bldSprite(b){
   const k=K(TN(b.town)?.kingdom); const col=k?k.color:'#888';
   const key='B|'+b.type+'|'+b.race+'|'+col+'|'+(b.id%3);
   let s=R_.bldCache.get(key); if(s) return s;
-  const W=b.w*TS, H=b.h*TS+30;
+  const W=b.w*TS, H=b.h*TS+(b.type==='menara'?48:30);
   const [c,g,R]=bcan(W,H);
   const base=H-4; const wins=[];
   const race=b.race, stone=STONE[race]||STONE.manusia, roof=ROOF[race]||ROOF.manusia;
@@ -6409,6 +6525,15 @@ function bldSprite(b){
     R(x+9,y-2,12,5,'#6a5a4a'); R(x+10,y-1,10,3,'#7ab8e0'); R(x+11,y-1,4,1,'#c8e8ff');
     for(let i=0;i<3;i++){ R(x+11+i*3,y-6-i,1,3,'#e8eef6'); R(x+12+i*3,y-9-i,1,2,'#e8eef6'); }
     R(x-14,y-9,4,3,'#3a4a6a'); wins.push([x-14,y-9,4,3]);
+  } else if(b.type==='menara'){
+    const x=W/2, y=base-2, st='#5a5468', lt='#7a7488', dk='#3a3446';
+    R(x-20,y-10,40,12,dk); R(x-18,y-12,36,2,lt);
+    R(x-13,y-58,26,48,st); for(let yy=y-58;yy<y-10;yy+=6) R(x-13,yy,26,1,dk); R(x-13,y-58,2,48,lt); R(x+11,y-58,2,48,dk);
+    for(let i=0;i<4;i++) R(x-15+i*8,y-62,4,4,st);
+    R(x-4,y-74,8,12,'#2a1a3a'); R(x-2,y-80,4,6,'#c87aff'); R(x-1,y-82,2,2,'#f0d0ff'); R(x-3,y-76,6,1,'#9a4ad0');
+    R(x-5,y-22,10,12,'#1a1020'); R(x-5,y-23,10,1,'#9a4ad0');
+    for(const yy of [y-48,y-36]){ R(x-8,yy,4,6,'#3a2a5a'); R(x+4,yy,4,6,'#3a2a5a'); wins.push([x-8,yy,4,6],[x+4,yy,4,6]); }
+    R(x-6,y-30,12,3,'#9a4ad0'); R(x-5,y-29,10,1,'#f0d0ff');
   } else if(b.type==='perpus'){
     const x=W/2, y=base-2;
     R(x-22,y-18,44,20,stone); for(let yy=y-18;yy<y+2;yy+=4) R(x-22,yy,44,1,shade(stone,-.15));
@@ -7171,7 +7296,7 @@ function renderDetail(b){
     b.innerHTML=`<div class="card"><h3>${esc(d.name)}</h3><dl class="kv"><dt>Pemimpin</dt><dd>${ch&&!ch.dead?esc(ch.name):'tidak ada'}</dd><dt>Penghuni</dt><dd>${mem.length} · ${Object.entries(cnt).map(([k,n])=>`${n} ${MON[k].n}`).join(', ')}</dd><dt>Tawanan</dt><dd>${d.captives.length?d.captives.map(personLink).join(', '):'tidak ada'}</dd><dt>Muncul</dt><dd>Tahun ${d.born}</dd></dl><p class="sub" style="margin:0">Goblin berburu berkelompok, menyerbu desa tak bertembok, membakar rumah, dan menculik perempuan. Sarang membengkak dan memecah diri bila dibiarkan. Guild memasang quest untuk membasminya.</p><div class="row"><button class="btn warn" data-denx="1">Hancurkan dengan petir</button></div></div>`; return; }
   if(s.type==='grave'){ const t=TN(s.id); const gr=t&&(t.graves||[]).find(g=>g.pid===s.pid); const p=person(s.pid); if(!gr||!p){ b.innerHTML=''; return; }
     b.innerHTML=`<div class="card"><h3>${gr.kind==='nisan'?'Nisan kosong':'Makam'} · ${esc(gr.name)} ${esc(gr.marga||'')}</h3><p class="sub" style="margin:0;font-style:italic">${gr.missing?'Jasadnya tak pernah kembali.':'Beristirahat dengan tenang.'}</p><dl class="kv"><dt>Hidup</dt><dd>Tahun ${gr.bornY} – ${G.grave[s.pid]?.diedY??gr.y}</dd><dt>Sebab</dt><dd>${esc(G.grave[s.pid]?.cause||gr.cause||'-')}</dd><dt>Pemakaman</dt><dd>${esc(t.name)}</dd></dl><div class="row"><button class="btn" data-uid="${s.pid}">Lihat riwayat hidupnya</button></div></div>`; return; }
-  if(s.type==='bld'){ const bd=B(s.id); if(!bd){ b.innerHTML=''; return; } if(bd.type==='perpus'||bd.type==='patung'){ b.innerHTML=libraryPanel(bd); return; } const t=TN(bd.town); const res=G.units.filter(u=>!u.dead&&u.home===bd.id);
+  if(s.type==='bld'){ const bd=B(s.id); if(!bd){ b.innerHTML=''; return; } if(bd.type==='perpus'||bd.type==='patung'){ b.innerHTML=libraryPanel(bd); return; } if(bd.type==='menara'){ b.innerHTML=towerPanel(bd); return; } const t=TN(bd.town); const res=G.units.filter(u=>!u.dead&&u.home===bd.id);
     b.innerHTML=`<div class="card"><h3>${BLD[bd.type].n}${bd.type==='rumah'&&U(bd.owner)?` keluarga ${esc(U(bd.owner).marga)}`:''}</h3><dl class="kv"><dt>Kota</dt><dd>${t?esc(t.name):'-'}</dd><dt>Status</dt><dd>${bd.done?'Berdiri':`Dibangun ${Math.round(bd.progress/bd.work*100)}%${bd.paid?'':' (menunggu bahan)'}`}</dd>${bd.owner?`<dt>Pemilik</dt><dd>${personLink(bd.owner)}</dd>`:''}<dt>Penghuni</dt><dd>${res.length?res.map(r=>personLink(r.id)).join(', '):'-'}</dd>${bd.type==='klinik'?`<dt>Pasien</dt><dd>${G.units.filter(u=>!u.dead&&u.patient&&u.patient.b===bd.id).map(u=>personLink(u.id)).join(', ')||'tidak ada'}</dd><dt>Tabib jaga</dt><dd>${G.step-(bd.nurse||-999)<60?'ada':'tidak ada'}</dd>`:''}</dl></div>`; return; }
   if(s.type==='plot'){ const t=TN(s.id); const f=t&&t.fields[s.i]; if(!f){ b.innerHTML=''; return; }
     const st={kosong:'Kosong, siap ditanami',bibit:'Baru ditanam',tumbuh:'Sedang tumbuh',matang:'Siap panen',layu:'Layu, perlu dibersihkan'}[f.st||'kosong'];
@@ -7759,6 +7884,7 @@ function closeDV(){ UI.dv=null; $('dview').hidden=true; }
 function dvParty(){ return UI.dv&&G.parties.find(p=>p.id===UI.dv.pid); }
 function floorWindow(s,f){ const ev=s.ev; const st=(ev.find(e=>e.k==='floor'&&e.f===f)||{t:0}).t; const nx=ev.find(e=>e.k==='floor'&&e.f===f+1); const end=nx?nx.t:(ev.find(e=>e.k==='exit')||{t:s.T}).t; return [st,Math.max(st+1,end)]; }
 function drawDV(){
+  if(UI.dv&&UI.dv.uid) return drawTV();
   const cv=$('dvc'); if(!cv) return; const r=cv.getBoundingClientRect(); const dpr=Math.min(2,window.devicePixelRatio||1);
   if(cv.width!==Math.round(r.width*dpr)||cv.height!==Math.round(r.height*dpr)){ cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr); }
   const g=cv.getContext('2d'); g.imageSmoothingEnabled=false; g.setTransform(1,0,0,1,0,0); g.fillStyle='#0b0910'; g.fillRect(0,0,cv.width,cv.height);
@@ -7802,7 +7928,9 @@ function drawDV(){
 }
 function dvAutoCheck(){
   if(UI.dv||!UI.follow||!UI.sel||UI.sel.type!=='unit') return;
-  const u=U(UI.sel.id); if(!u||!u.inside) return; const p=partyOf(u); if(!p||p.state!=='in'||!p.script) return;
+  const u=U(UI.sel.id); if(!u||!u.inside) return;
+  if(u.task&&u.task.k==='tower'&&u.task.phase==='in'){ const key='tw'+u.id+':'+(u.flags.twRuns||0); if(UI.dvAuto!==key){ UI.dvAuto=key; openTV(u.id); } return; }
+  const p=partyOf(u); if(!p||p.state!=='in'||!p.script) return;
   const key=p.id+':'+p.lastOut; if(UI.dvAuto===key) return; UI.dvAuto=key; openDV(p.id);
 }
 
@@ -7871,12 +7999,15 @@ function unitExtra9(u){
   if(u.maps&&Object.keys(u.maps).length) h+=`<dt>Peta dikuasai</dt><dd>${Object.entries(u.maps).map(([id,f])=>{ const d=G.dungeons.find(x=>x.id===+id); return d?`${esc(d.name)} (lt ${f})`:''; }).filter(Boolean).join(', ')}</dd>`;
   if(u.flags.merc) h+=`<dt>Sewaan</dt><dd>Tarif ${mercPrice(u)} emas per misi (peringkat ${rankOf(u.lvl)})${u.flags.mercJobs?` · ${u.flags.mercJobs} kontrak selesai`:''}${u.flags.hiredBy?' · sedang disewa':''}</dd>`;
   if(u.flags.ferries) h+=`<dt>Antar Hunter</dt><dd>${u.flags.ferries} kali mengantar grup Hunter${u.flags.ferry?' · sedang mengantar':''}</dd>`;
+  if(u.flags.twBest||u.flags.twRuns) h+=`<dt>Menara Ujian</dt><dd>Rekor lantai ${u.flags.twBest||0} · ${u.flags.twRuns||0} kali latihan${u.task&&u.task.k==='tower'&&u.task.phase==='in'?` · <span class="link" data-tvu="${u.id}">Tonton latihannya</span>`:''}</dd>`;
+  if(u.flags.blackSum) h+=`<dt>Black Summoner</dt><dd>${u.flags.sealed||0} monster disegel${u.flags.bsTrip?` · sedang berburu di ${esc(u.flags.bsTrip.name)}`:''}</dd>`;
   if(u.flags.origin) h+=`<dt>Asal</dt><dd>${esc(u.flags.origin)} (datang dengan kapal)</dd>`;
   if(u.flags.allyWins) h+=`<dt>Perburuan aliansi</dt><dd>${u.flags.allyWins} kemenangan</dd>`;
   if(u.flags.haul) h+=`<dt>Tugas Tamer</dt><dd>${u.flags.haul.phase==='go'?'Menjemput':'Menyeret'} bangkai ${esc(MON[u.flags.haul.mk].n)} ke ${esc(BLD.lelang.n)}</dd>`;
   return h;
 }
 function initUI6(){
+  $('pbody').addEventListener('click',e=>{ const b=e.target.closest('[data-tvu]'); if(b) openTV(+b.dataset.tvu); });
   $('pbody').addEventListener('click',e=>{ const b=e.target.closest('[data-pubmap]'); if(!b) return; const d=G.dungeons.find(x=>x.id===+b.dataset.pubmap); if(d){ const r=publishMap(d); if(r) toast(r); UI.pdirty=true; renderPanel(true); } });
   $('pbody').addEventListener('click',e=>{ const b=e.target.closest('[data-allyfocus]'); if(!b) return; const al=(G.alliances||[]).find(a=>a.id===+b.dataset.allyfocus); const m=al&&U(al.target); if(m){ centerOn(m.x,m.y,Math.max(R_.cam.z,2.4)); UI.follow=false; } });
 }
@@ -7910,5 +8041,46 @@ initUI2();
 initUI3();
 initUI5();
 initUI6();
+
+/* ---------- panel & penonton Menara Ujian ---------- */
+function towerPanel(bd){
+  const t=TN(bd.town); const w=tower(t); const bs=U(w.summoner);
+  const inside=G.units.filter(u=>!u.dead&&u.task&&u.task.k==='tower'&&u.task.b===bd.id&&u.task.phase==='in');
+  const ranks=RANK_ORDER.map(r=>`${r} ${w.stock[r]||0}`).join(' · ');
+  return `<div class="card"><h3>Menara Ujian ${t?esc(t.name):''}</h3><p class="sub" style="margin:0">Seratus lantai monster yang disegel Black Summoner. Hanya petualang yang boleh masuk. Yang kalah tidak mati, cuma terlempar keluar, dan XP-nya tetap didapat.${bd.done?'':` Masih dibangun ${Math.round(bd.progress/bd.work*100)}%.`}</p>
+  <dl class="kv"><dt>Monster tersegel</dt><dd>${ranks}</dd><dt>Lantai</dt><dd>1–15 F · 16–30 E · 31–45 D · 46–60 C · 61–75 B · 76–95 A · 96–97 S · 98–99 SS · 100 SSS</dd>
+  <dt>Black Summoner</dt><dd>${bs?personLink(bs.id):'-'}${bs&&bs.flags.bsTrip?` · sedang berburu monster di ${esc(bs.flags.bsTrip.name)}${U(bs.flags.bsTrip.vet)?` bersama ${personLink(bs.flags.bsTrip.vet)}`:''}`:''}${bs&&bs.flags.sealed?` · ${bs.flags.sealed} monster disegel`:''}</dd>
+  <dt>Rekor</dt><dd>${w.best?`Lantai ${w.best.f} · ${personLink(w.best.id)}`:'-'} · ${w.runs} kali latihan</dd></dl>
+  ${inside.length?`<h4>Sedang berlatih</h4>${inside.map(u=>`<div class="row" style="justify-content:space-between"><span>${personLink(u.id)} Lv ${u.lvl} · lantai ${u.task.s&&u.task.s.fl[u.task.s.i]?u.task.s.fl[u.task.s.i].f:'-'}</span><button class="btn" data-tvu="${u.id}">Tonton</button></div>`).join('')}`:''}
+  ${w.log.length?`<h4>Catatan menara</h4><ul class="log">${w.log.map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:''}</div>`;
+}
+function openTV(uid){ UI.dv={uid}; $('dview').hidden=false; }
+function drawTV(){
+  const cv=$('dvc'); if(!cv) return; const r=cv.getBoundingClientRect(); const dpr=Math.min(2,window.devicePixelRatio||1);
+  if(cv.width!==Math.round(r.width*dpr)||cv.height!==Math.round(r.height*dpr)){ cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr); }
+  const g=cv.getContext('2d'); g.imageSmoothingEnabled=false; g.setTransform(1,0,0,1,0,0); g.fillStyle='#0d0a14'; g.fillRect(0,0,cv.width,cv.height);
+  const u=U(UI.dv.uid); const hud=$('dvhud'); const k=u&&u.task&&u.task.k==='tower'&&u.task.s?u.task:null;
+  if(!k){ const L=u&&u.flags.twLast; hud.innerHTML=`<div class="box"><b style="color:var(--gold)">${u?esc(u.name)+' sudah keluar dari Menara Ujian.':'-'}</b>${L?`<p class="sub">Lantai terakhir: ${L.fl.map(x=>x.f+(x.none?' (kosong)':x.win?' ✓':' ✗')).join(', ')}</p>`:''}<p class="sub">Rekor pribadi: lantai ${u&&u.flags.twBest||0}</p></div>`; return; }
+  const s=k.s, cur=s.fl[s.i]; if(!cur){ return; }
+  const pseudo={id:700000+(k.b||0),floors:[]}; const F=dunFloor(pseudo,cur.f);
+  const ts=Math.max(4,Math.floor(Math.min(cv.width/DV_W,(cv.height-20*dpr)/DV_H))); const ox=Math.floor((cv.width-ts*DV_W)/2), oy=Math.floor((cv.height-ts*DV_H)/2)+Math.round(14*dpr);
+  const hue=Math.min(1,cur.f/100); const pal=[`rgb(${30+hue*40},${26},${44+hue*20})`,`rgb(${40+hue*50},${36},${58+hue*24})`,`rgb(${52+hue*56},${46},${72+hue*26})`];
+  for(let y=0;y<DV_H;y++) for(let x=0;x<DV_W;x++){ const v=F.grid[y*DV_W+x]; if(v){ g.fillStyle=(x+y)%2?pal[1]:pal[2]; g.fillRect(ox+x*ts,oy+y*ts,ts,ts); } else if(F.grid[(y+1)*DV_W+x]){ g.fillStyle='#4a3a66'; g.fillRect(ox+x*ts,oy+y*ts,ts,ts); g.fillStyle='#2a2040'; g.fillRect(ox+x*ts,oy+y*ts+ts*.7,ts,ts*.3); } }
+  const now=performance.now();
+  for(const dc of F.deco){ if(dc.k!=='torch') continue; const X=ox+dc.x*ts, Y=oy+dc.y*ts; g.fillStyle='#3a2a50'; g.fillRect(X+ts*.45,Y+ts*.4,ts*.12,ts*.4); g.fillStyle=Math.floor(now/180+dc.x)%2?'#c87aff':'#9a4ad0'; g.fillRect(X+ts*.38,Y+ts*.15,ts*.26,ts*.3); }
+  const fr=clamp(s.el/s.FD,0,1); const walk=Math.min(1,fr/.45);
+  const pos=pathAt(F,walk*.75); const flip=(pos.dx||1)<0; const sc=ts/7; const frm=Math.floor(now/160)%4;
+  const spr=(img,X,Y,scl,fl_)=>{ g.save(); g.translate(Math.round(X),Math.round(Y)); if(fl_) g.scale(-1,1); g.drawImage(img,-FX*scl,-FY*scl,img.width*scl,img.height*scl); g.restore(); };
+  const X=ox+(pos.x+.5)*ts, Y=oy+(pos.y+1)*ts;
+  const lost=!cur.none&&!cur.win&&fr>.8;
+  if(!lost) spr(unitSprite(u,'side',fr<.45||fr<.85?frm:0),X,Y,sc,flip);
+  else { g.globalAlpha=Math.max(0,1-(fr-.8)*5); spr(unitSprite(u,'side',0),X,Y-(fr-.8)*ts*20,sc,flip); g.globalAlpha=1; g.fillStyle='rgba(200,122,255,.35)'; g.beginPath(); g.arc(X,Y-ts*2,ts*2.2,0,7); g.fill(); }
+  if(!cur.none&&fr>.4){ const ahead=pathAt(F,.82); cur.mons.forEach((mk,i)=>{ const M=MON[mk]; if(!M) return; const MX=ox+(ahead.x+.5)*ts+i*ts*1.6*(flip?-1:1), MY=oy+(ahead.y+1)*ts-i*ts*.3; const gone=cur.win&&fr>.78; g.globalAlpha=gone?Math.max(0,1-(fr-.78)*6):1; spr(monSprite({k:M.k,c:M.c,race:M.race,job:M.job,king:M.king,eye:M.eye,dir:'side'},frm),MX,MY,sc*Math.min(1.6,M.sc||1),!flip); g.globalAlpha=1;
+      if(!gone&&fr<.8&&Math.floor(now/120+i)%3===0){ g.strokeStyle='#ffffff'; g.lineWidth=Math.max(1,ts*.12); g.beginPath(); g.arc(MX,MY-ts*1.4,ts*.7,-.9,.9); g.stroke(); } }); }
+  g.fillStyle='rgba(0,0,0,.6)'; g.fillRect(X-ts*.6,Y-ts*4.6,ts*1.2,ts*.18); g.fillStyle='#6ad06a'; g.fillRect(X-ts*.6,Y-ts*4.6,ts*1.2*clamp(lost?0:u.hp/u.maxHp*(1-(fr>.45&&fr<.8?.3*Math.sin(now/200)**2:0)),0,1),ts*.18);
+  const t=TN(B(k.b)?.town);
+  hud.innerHTML=`<div class="box"><b style="color:#c87aff">Menara Ujian${t?' '+esc(t.name):''}</b> · lantai ${cur.f}/100 (${twRankOfFloor(cur.f)})<br><span class="sub">${esc(u.name)} · Lv ${u.lvl} · rekor lantai ${u.flags.twBest||0}</span></div>
+  <div class="box"><span class="sub">${cur.none?`Lantai ini kosong: belum ada monster peringkat ${cur.none}. Black Summoner harus mengisinya dulu.`:fr<.45?'Menyusuri lorong…':fr<.8?`Bertarung melawan ${cur.mons.map(m=>MON[m].n).join(', ')}!`:cur.win?'Menang! Naik ke lantai berikutnya.':'Kalah. Lingkaran sihir melemparnya keluar menara tanpa luka fatal.'}</span></div>`;
+}
 
 </script>
