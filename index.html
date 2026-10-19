@@ -1107,6 +1107,7 @@ function chooseTask(u){
   u.inside=false;
   if(u.flags.infil) return infilTask(u);
   if(u.flags.hvWait&&hvWaitTask(u)) return;
+  if(u.flags.voyage&&voyageTask(u)) return;
   if(u.flags.tourney&&tourneyTask(u)) return;
   if(u.flags.battle&&battleTask(u)) return;
   if(u.flags.haul){ haulStep(u); if(u.task) return; }
@@ -1171,7 +1172,7 @@ function farmStep(u,k){
   if(k.act==='panen'){
     if(plotState(f)!=='matang'){ u.task=null; return; }
     const late=Math.max(0,(G.step-(f.ripe||G.step))/DAY);
-    let amt=(CROPS[f.crop]||CROPS.gandum).yield*r*(1-Math.min(.5,late*.1))*(has(u,'Pencinta Alam')?1.1:1);
+    let amt=(CROPS[f.crop]||CROPS.gandum).yield*r*(1-Math.min(.5,late*.1))*(has(u,'Pencinta Alam')?1.1:1)*(inDisaster(u.town,'kemarau')?.35:1);
     if(stageOf(u)==='remaja') amt*=.6;
     t.harvests=(t.harvests||0)+1; f.st='kosong'; f.g=0; f.care=G.step; f.lastYield=Math.round(amt);
     u.carry={res:'food',amt}; gainXp(u,2);
@@ -1787,7 +1788,7 @@ function guildDaily(t,people){
     let q=null;
     if(duns.length&&rnd()<.3){ const d=pick(duns); const f=clamp(d.deep+ri(0,2),1,d.maxFloor); q={type:'dungeon',dun:d.id,floor:f,reward:Math.round(20+f*f*6),text:`Capai lantai ${f} ${d.name}`}; }
     else if(near.length){ const n=near[Math.min(near.length-1,Math.floor(rnd()*Math.min(4,near.length)))]; const c=ri(2,5); q={type:'buru',nest:n.id,n:c,reward:Math.round(12+c*5*(1+n.danger*1.5)),text:`Basmi ${c} monster di ${n.name}`}; }
-    const dn=(G.dens||[]).find(d=>dist(d.x,d.y,t.cx,t.cy)<110&&!t.quests.some(o=>!o.done&&o.type==='den'&&o.den===d.id));
+    const dn=(G.dens||[]).find(d=>!d.peace&&dist(d.x,d.y,t.cx,t.cy)<110&&!t.quests.some(o=>!o.done&&o.type==='den'&&o.den===d.id));
     if(dn&&rnd()<.4) q={type:'den',den:dn.id,reward:Math.round(90+denMembers(dn).length*8+dn.captives.length*40),text:`Basmi ${dn.name}${dn.captives.length?' dan selamatkan para tawanan':''}`};
     if(q&&!t.quests.some(o=>!o.done&&o.text===q.text)){ q.id=newId(); q.posted=yearInt(); q.taker=null; t.quests.push(q); }
   }
@@ -1812,6 +1813,7 @@ function schoolDaily(t,people){
 }
 function isHostile(a,b){
   if(a.downed||b.downed||a.dead||b.dead) return false;
+  if(a.flags&&a.flags.den&&denPeace(a)||b.flags&&b.flags.den&&denPeace(b)) return false;
   if(b.flags&&b.flags.sea&&(a.tamer||a.race!=='monster'&&attackRange(a)<30)) return false;
   if(a.flags&&a.flags.sea&&(b.tamer||b.race!=='monster'&&attackRange(b)<30)) return false;
   const sa=sideOf(a), sb=sideOf(b);
@@ -2016,7 +2018,7 @@ function daily(){
   }
   // peristiwa hidup per warga
   for(const u of G.units.slice()){
-    if(u.dead||u.race==='monster') continue;
+    if(u.dead||u.race==='monster'||u.flags.abroad) continue;
     lifeDaily(u);
   }
   // hubungan memudar
@@ -2335,6 +2337,7 @@ function step(){
     const u=us[i]; if(u.dead) continue;
     u.px=u.x; u.py=u.y;
     if(u.race==='monster'){ stepMonster(u); continue; }
+    if(u.flags.abroad) continue;
     if(u.cd>0) u.cd--;
     if(u.captive) continue;
     if(u.fx){ fxTick(u); if(u.dead) continue; }
@@ -2356,6 +2359,7 @@ function step(){
   if(G.step%2===1) boatsMove();
   if(G.hv) hvTick();
   if(G.tourney||G.battle) tick16();
+  if(G.sailing&&G.sailing.length) sailTick();
   const sd=G.step%DAY;
   if(sd===Math.floor(DAY*.06)) nightRomance();
   if(sd===Math.floor(DAY*.54)||sd===Math.floor(DAY*.76)){
@@ -3141,6 +3145,7 @@ function densDaily(){
   for(const d of G.dens.slice()){
     const mem=denMembers(d);
     if(!mem.length){ clearDen(d,null); continue; }
+    if(d.peace&&K(d.peace)?.alive) continue;
     if(G.step-(d.lastHunt||0)>DAY*3&&mem.length>=4&&rnd()<.5){
       d.lastHunt=G.step;
       const towns=G.towns.slice().sort((a,b)=>dist(a.cx,a.cy,d.x,d.y)-dist(b.cx,b.cy,d.x,d.y));
@@ -5097,7 +5102,7 @@ function worldUpgrade12(){
   if(G.pendingLegends) G.pendingLegends=G.pendingLegends.filter(k=>k!=='chaoticDragon');
 }
 function daily11(){ worldUpgrade11(); worldUpgrade12(); worldUpgrade13(); }
-function yearly11(){ chaosYearly(); hvVisitYearly(); advYearly(); yearly15(); yearly16(); }
+function yearly11(){ chaosYearly(); hvVisitYearly(); advYearly(); yearly15(); yearly16(); yearly17(); }
 /* ---------- kapal Hunter dari negeri lain ---------- */
 const HV_LANDS=['Negeri Kabut Utara','Kepulauan Taring','Benua Pasir Merah','Lembah Seribu Sarang','Kerajaan Es Varn','Tanah Rawa Selatan','Dunia Seberang Timur'];
 function hvVisitYearly(){
@@ -5471,7 +5476,7 @@ function ferryStep(tm){
 }
 function ferryEnd(tm,g){ tm.flags.ferry=null; tm.task=null; tm.path=[]; if(g) for(const id of g.members){ const v=U(id); if(v) v.flags.riding=null; } const t=TN(tm.town); if(t) goTo(tm,(t.cx+1)*TS+ri(-20,20),(t.cy+2)*TS); }
 function daily13(){
-  towerDaily(); daily15();
+  towerDaily(); daily15(); daily17();
   for(const t of G.towns){ guildQuests2(t); mercDaily(t); }
   const ht=hvTown&&hvTown(); if(ht) eggBuyDaily(ht);
 }
@@ -5900,6 +5905,155 @@ function ruinLoot(d,mem,floor){
 }
 function yearly16(){ diplomacyYearly(); tourneyYearly(); rankingYearly(); ruinYearly(); }
 function tick16(){ tourneyTick(); battleTick(); }
+
+/* =====================================================================
+   SIMULASI 17: desa monster yang bisa berdamai, bencana musiman,
+   pelayaran ke dunia lain & koloni di benua monster
+   ===================================================================== */
+/* ---------- desa monster ---------- */
+function denPeace(m){ const d=m.flags&&m.flags.den&&(G.dens||[]).find(x=>x.id===m.flags.den); return !!(d&&d.peace&&K(d.peace)?.alive); }
+function goodKing(k){ const kg=U(k&&k.king); return kg&&!has(kg,'Kejam')&&(has(kg,'Adil')||has(kg,'Bijak')||has(kg,'Ramah')||has(kg,'Religius')||has(kg,'Pencinta Alam')); }
+function tribesYearly(){
+  for(const d of G.dens||[]){
+    const mem=denMembers(d); if(!mem.length) continue;
+    d.age=(d.age||0)+1;
+    if(!d.village&&mem.length>=7&&d.age>=3){ d.village=1; const nm=d.kind==='orc'?'Orc':'Goblin'; d.oldName=d.name; d.name=`Desa ${nm} ${pick(['Batu Merah','Taring Patah','Lumpur Hijau','Asap Hitam','Tulang Putih'])}`;
+      log(`${d.oldName} berkembang menjadi sebuah desa: ${d.name}. Mereka mulai membangun pondok dan memilih kepala suku.`,'war',{x:d.x*TS,y:d.y*TS}); }
+    const t=G.towns.filter(x=>!x.hunter).sort((a,b)=>dist(a.cx,a.cy,d.x,d.y)-dist(b.cx,b.cy,d.x,d.y))[0]; const k=t&&K(t.kingdom);
+    if(d.peace){
+      const pk=K(d.peace);
+      if(!pk||!pk.alive||U(pk.king)&&has(U(pk.king),'Kejam')&&rnd()<.4){ d.peace=null; log(`Perjanjian damai dengan ${d.name} runtuh. Para goblin kembali mengasah tombak.`,'war',{x:d.x*TS,y:d.y*TS}); continue; }
+      const pt=TN(pk.capital); if(pt){ pt.stock.stone+=ri(10,25); pt.stock.wood+=ri(5,15); const o=oreStock(pt); o.besi+=ri(2,5); syncOre(pt); pk.treasury+=ri(10,30); if(rnd()<.4) log(`Pedagang dari ${d.name} datang ke ${pt.name} membawa batu, kayu, dan bijih besi untuk ditukar garam dan kain.`,'life',{x:(pt.cx+1)*TS,y:(pt.cy+1)*TS}); }
+      continue;
+    }
+    if(d.village&&k&&goodKing(k)&&d.captives.length===0&&rnd()<.3){
+      d.peace=k.id; d.peaceY=yearInt();
+      for(const t2 of G.towns) for(const q of t2.quests||[]) if(q.type==='den'&&q.den===d.id) q.done=true;
+      for(const m of mem){ m.task=null; m.flags.raid=null; m.flags.hunt=null; m.path=[]; }
+      log(`${fullName(U(k.king))} mengutus duta ke ${d.name}. Setelah tiga hari berunding, kepala suku menyetujui perjanjian damai. Goblin dan manusia kini berdagang, bukan bertarung.`,'hero',{x:d.x*TS,y:d.y*TS});
+    }
+  }
+}
+/* ---------- bencana ---------- */
+const DISASTERS={kemarau:{n:'Kemarau Panjang',d:'Hujan tak turun. Panen gagal di banyak ladang.'},dingin:{n:'Musim Dingin Ganas',d:'Salju tebal menutup jalan. Pangan cepat habis dan para lansia rentan.'},banjir:{n:'Banjir Bandang',d:'Air bah merobohkan bangunan di dekat sungai dan pantai.'},gempa:{n:'Gempa Bumi',d:'Tanah berguncang. Bangunan retak dan roboh.'}};
+function disasterYearly(){
+  G.disaster=null; if(yearInt()<3||rnd()>.25) return;
+  const type=pick(Object.keys(DISASTERS)); const c=pick(G.towns.filter(t=>!t.hunter)); if(!c) return;
+  const R=type==='kemarau'||type==='dingin'?90:50;
+  const towns=G.towns.filter(t=>dist(t.cx,t.cy,c.cx,c.cy)<R&&(type!=='banjir'||coastPoint(t)||t===c));
+  G.disaster={type,towns:towns.map(t=>t.id),y:yearInt()}; G.disLog=G.disLog||[]; G.disLog.unshift(`Th ${yearInt()}: ${DISASTERS[type].n} melanda ${towns.map(t=>t.name).join(', ')}`); if(G.disLog.length>20) G.disLog.pop();
+  log(`${DISASTERS[type].n}! ${DISASTERS[type].d} Wilayah terdampak: ${towns.map(t=>t.name).join(', ')}.`,'war',{x:(c.cx+1)*TS,y:(c.cy+1)*TS});
+  if(type==='banjir'||type==='gempa'){ for(const t of towns){ const bs=G.blds.filter(b=>b.town===t.id&&b.done&&!['istana','tenda','patung'].includes(b.type)).sort(()=>rnd()-.5).slice(0,ri(1,type==='gempa'?4:3)); for(const b of bs){ b.done=false; b.progress=Math.round(b.work*.4); b.paid=false; if(!t.queue.includes(b.id)) t.queue.push(b.id); } if(bs.length) FX_QUEUE.push({k:'nova',x:(t.cx+1)*TS,y:(t.cy+1)*TS,r:60,c:type==='banjir'?'#5a9ad8':'#a08060',t:60,ring:1}); } }
+  // tetangga membantu atau memanfaatkan
+  const hit=new Set(towns.map(t=>t.kingdom));
+  for(const k of G.kingdoms.filter(k=>k.alive&&!k.hunter&&!hit.has(k.id))){
+    for(const vk of [...hit].map(K).filter(x=>x&&x.alive&&!x.hunter)){
+      const d=dip(k,vk); const mt=TN(k.capital), vt=TN(vk.capital); if(!mt||!vt) continue;
+      if((d.status==='sekutu'||d.status==='damai'&&goodKing(k))&&mt.stock.food>120){ const f=Math.round(mt.stock.food*.2); mt.stock.food-=f; vt.stock.food+=f; d.rel=Math.min(100,d.rel+10); log(`${k.name} mengirim ${f} pangan untuk membantu ${vk.name} yang dilanda bencana.`,'life',{x:(vt.cx+1)*TS,y:(vt.cy+1)*TS}); }
+      else if(d.status==='tegang'&&U(k.king)&&(has(U(k.king),'Serakah')||has(U(k.king),'Kejam'))&&rnd()<.5){ const f=Math.round(vt.stock.food*.25); vt.stock.food-=f; mt.stock.food+=f; d.rel=Math.max(-100,d.rel-15); log(`${k.name} memanfaatkan bencana dan menjarah ${f} pangan dari lumbung ${vk.name}!`,'war',{x:(vt.cx+1)*TS,y:(vt.cy+1)*TS}); }
+    }
+  }
+}
+function inDisaster(townId,type){ const D=G.disaster; return D&&D.type===type&&D.towns.includes(townId); }
+function disasterDaily(){
+  const D=G.disaster; if(!D||D.type!=='dingin') return;
+  for(const id of D.towns){ const t=TN(id); if(!t) continue; const ppl=G.units.filter(u=>!u.dead&&u.town===id&&u.race!=='monster'); t.stock.food=Math.max(0,t.stock.food-ppl.length*.2);
+    for(const u of ppl) if(stageOf(u)==='tua'&&rnd()<.004) die(u,null,'meninggal kedinginan di musim dingin ganas'); }
+}
+/* ---------- pelayaran ke dunia lain ---------- */
+const NEW_WORLDS=[
+  {n:'Benua Taring',d:'Hutan raksasa penuh raptor dan serigala purba.',mons:['speedprey','speedoraptor','wolf','beruang','greatBear'],c:'#3a6a3a'},
+  {n:'Kepulauan Kabut Ungu',d:'Pulau-pulau berkabut tempat slime dan kelelawar hidup tanpa musuh.',mons:['slime','elemSlime','kelelawar','batroww','bee'],c:'#5a4a7a'},
+  {n:'Gurun Tulang Raksasa',d:'Gurun berisi tulang naga kuno, sarang kalajengking dan salamander.',mons:['salamander','basilisk','jugglerKangaroo','pickleDragon'],c:'#b89a5a'},
+  {n:'Tanah Beku Utara',d:'Dataran es abadi, rumah yeti dan serigala salju.',mons:['yeti','wolf','greatBear','agrooBird'],c:'#c8d8e8'},
+  {n:'Rimba Seribu Sarang',d:'Rimba lebat dengan sarang monster di setiap pohon.',mons:['queenBee','bee','martialTiger','agrooBird','spider'],c:'#2a5a2a'},
+];
+const LEVELS=['Perkemahan','Desa Kayu','Desa Berpagar','Benteng Kecil','Kota Koloni'];
+function voyageYearly(){
+  G.colonies=G.colonies||[]; G.sailing=G.sailing||[];
+  if(yearInt()<8||G.colonies.filter(c=>!c.lost).length>=3||G.sailing.some(s=>s.crew)||rnd()>.18) return;
+  const ks=G.kingdoms.filter(k=>k.alive&&!k.hunter&&TN(k.capital)&&coastPoint(TN(k.capital)));
+  const k=pick(ks); if(!k) return; const t=TN(k.capital);
+  const ppl=G.units.filter(u=>!u.dead&&u.town===t.id&&u.race!=='monster'&&!u.royal&&!u.flags.istana&&!u.captive&&!u.party&&!u.flags.merc&&!u.flags.abroad);
+  if(ppl.length<40) return;
+  const want=u=>isAdult(u)&&stageOf(u)==='dewasa'&&(has(u,'Jiwa Petualang')||has(u,'Ambisius')||has(u,'Pemberani')||has(u,'Sok MC')||(u.happy||60)<45||u.kelas==='bawah'&&rnd()<.15);
+  const heads=ppl.filter(want).sort(()=>rnd()-.5); const crew=new Set();
+  for(const h of heads){ if(crew.size>=ri(10,16)) break; crew.add(h); const sp=U(h.spouse); if(sp&&!sp.dead&&sp.town===t.id&&!sp.royal) crew.add(sp); for(const c of h.children.map(U)) if(c&&!c.dead&&!isAdult(c)&&c.town===t.id) crew.add(c); }
+  if(crew.size<6) return;
+  const leader=[...crew].filter(isAdult).sort((a,b)=>leaderScore(b)-leaderScore(a))[0];
+  const W=pick(NEW_WORLDS); const cp=coastPoint(t);
+  let shore=null; for(let r=0;r<6&&!shore;r++) for(let dy=-r;dy<=r&&!shore;dy++) for(let dx=-r;dx<=r&&!shore;dx++) if(isLand(tileAt(cp.x+dx,cp.y+dy))) shore={x:(cp.x+dx+.5)*TS,y:(cp.y+dy+.5)*TS};
+  if(!shore) return;
+  // arah laut lepas: menjauh dari pusat daratan
+  const ex=(cp.x+.5)*TS, ey=(cp.y+.5)*TS; let vx=ex-(t.cx+1)*TS, vy=ey-(t.cy+1)*TS; const L=Math.hypot(vx,vy)||1; vx/=L; vy/=L;
+  const tx=clamp(ex+vx*MW*TS,-40,MW*TS+40), ty=clamp(ey+vy*MH*TS,-40,MH*TS+40);
+  const ship={id:newId(),x:ex,y:ey,tx,ty,mode:'wait',crew:[...crew].map(u=>u.id),leader:leader.id,from:k.id,town:t.id,world:W.n,shore,start:G.step,name:`Kapal ${pick(['Harapan','Fajar','Bintang Laut','Pengembara','Camar Putih'])}`};
+  G.sailing.push(ship);
+  for(const u of crew){ u.flags.voyage=ship.id; u.task=null; u.path=[]; }
+  log(`${fullName(leader)} memimpin ${crew.size} warga ${t.name} yang ingin memulai hidup baru. Mereka berkumpul di pantai, siap berlayar dengan ${ship.name} menuju ${W.n}, benua yang hanya dihuni monster.`,'hero',{x:shore.x,y:shore.y});
+}
+function voyageTask(u){
+  const s=(G.sailing||[]).find(x=>x.id===u.flags.voyage); if(!s||s.mode!=='wait'){ if(!s) u.flags.voyage=null; return false; }
+  if(dist(u.x,u.y,s.shore.x,s.shore.y)>14) goTo(u,s.shore.x+ri(-8,8),s.shore.y+ri(-5,5)); u.task={k:'idle',t:40}; return true;
+}
+function sailTick(){
+  for(const s of (G.sailing||[]).slice()){
+    if(s.mode==='wait'){ const crew=s.crew.map(U).filter(u=>u&&!u.dead); const here=crew.filter(u=>dist(u.x,u.y,s.shore.x,s.shore.y)<30).length;
+      if(here>=crew.length*.8||G.step-s.start>DAY*1.2){ s.mode='out'; s.crew=crew.map(u=>u.id);
+        for(const u of crew){ embark(u,s); } log(`${s.name} mengangkat sauh dan berlayar menuju cakrawala. Orang-orang di pantai melambai sampai layarnya hilang.`,'life',{x:s.x,y:s.y}); }
+      continue; }
+    const dx=s.tx-s.x, dy=s.ty-s.y, d=Math.hypot(dx,dy);
+    if(d>3){ s.x+=dx/d*.5; s.y+=dy/d*.5; s.flip=dx<0; if(s.x<-30||s.y<-30||s.x>MW*TS+30||s.y>MH*TS+30) arrive(s); }
+    else arrive(s);
+  }
+}
+function embark(u,s){ u.flags.voyage=null; u.flags.abroad=s.id; u.inside=true; u.task=null; u.path=[]; if(u.party){ const p=partyOf(u); if(p) partyLeave(p,u,'berlayar ke dunia lain'); } const h=B(u.home); if(h&&h.owner===u.id) h.owner=null; u.town=null; u.home=null; hist(u,`berlayar dengan ${s.name} menuju ${s.world}`); }
+function arrive(s){
+  G.sailing=G.sailing.filter(x=>x!==s);
+  if(s.ret){ const t=TN(s.retTown); if(t){ const k=K(t.kingdom); if(k) k.treasury+=s.gold; t.stock.food+=s.food||0; } log(`Kapal dari koloni ${s.colName} berlabuh di ${t?t.name:'pelabuhan'}, membawa ${s.gold} emas${s.egg?` dan sebutir telur ${MON[s.egg]?.n||'monster'}`:''} dari ${s.world}.`,'life',{x:s.x,y:s.y}); if(s.egg&&G.hv&&G.hv.mat){ /* telur dijual di pasar Hunter */ } return; }
+  if(s.mode!=='out') return;
+  const W=NEW_WORLDS.find(w=>w.n===s.world)||NEW_WORLDS[0];
+  const used=(G.colonies||[]).map(c=>c.name); const col={id:s.id,name:'Koloni '+(['Harapan Baru','Fajar Seberang','Tanah Janji','Api Unggun','Batu Pertama','Layar Terakhir','Bintang Utara'].find(n=>!used.includes('Koloni '+n))||'Baru '+yearInt()),world:W.n,from:s.from,town:s.town,leader:s.leader,people:s.crew.slice(),founded:yearInt(),level:0,food:60,wall:0,log:[],seed:s.id*131,lost:false,deaths:0,births:0,tamed:[]};
+  for(const id of col.people){ const u=U(id); if(u) u.flags.abroad=col.id; }
+  G.colonies.push(col); colLog(col,`${s.name} tiba di ${W.n}. Mereka mendirikan perkemahan di tepi pantai.`);
+  log(`Kabar dari laut: ${s.name} selamat tiba di ${W.n}. ${col.people.length} perantau mendirikan ${col.name}.`,'hero',null);
+}
+function colLog(c,s){ c.log.unshift(`Th ${yearInt()}: ${s}`); if(c.log.length>20) c.log.pop(); }
+function colonyPeople(c){ return c.people.map(U).filter(u=>u&&!u.dead); }
+function colonyYearly(){
+  for(const c of G.colonies||[]){
+    if(c.lost) continue; const ppl=colonyPeople(c); c.people=ppl.map(u=>u.id);
+    if(!ppl.length){ c.lost=true; colLog(c,'Koloni sunyi. Tidak ada yang tersisa.'); log(`Tidak ada lagi kabar dari ${c.name} di ${c.world}. Para pelaut berkata api unggunnya sudah lama padam.`,'war',null); continue; }
+    const W=NEW_WORLDS.find(w=>w.n===c.world)||NEW_WORLDS[0];
+    const fighters=ppl.filter(u=>isAdult(u)&&canFight(u)); const pow=fighters.reduce((s,u)=>s+tPower(u),0)+c.wall*15;
+    const danger=8+yearInt()*.35+ri(0,18)-c.level*3;
+    // serangan monster
+    if(rnd()<.45){ const m=pick(W.mons); const win=pow>danger*(.6+rnd()*.8);
+      if(win){ for(const u of fighters) gainXp(u,25); colLog(c,`Gerombolan ${MON[m]?.n||m} menyerang, tapi berhasil dipukul mundur.`); }
+      else { const v=pick(ppl); if(v){ v.dead=true; v.hp=0; c.deaths++; hist(v,`tewas diserang ${MON[m]?.n||m} di ${c.world}`); colLog(c,`${v.name} tewas diserang ${MON[m]?.n||m}.`); } } }
+    // kelahiran
+    const couples=ppl.filter(u=>u.sex==='f'&&u.spouse&&U(u.spouse)&&!U(u.spouse).dead&&U(u.spouse).flags.abroad===c.id&&isAdult(u)&&ageOf(u)<RACE[u.race].adult+25);
+    for(const mom of couples){ if(rnd()>.55) continue; const dad=U(mom.spouse);
+      const ch=makeUnit({race:mom.race,mother:mom.id,father:dad.id,age:0,town:null,kingdom:null,home:null,x:mom.x,y:mom.y,marga:dad.marga}); ch.flags.abroad=c.id; ch.inside=true; mom.children.push(ch.id); dad.children.push(ch.id); c.people.push(ch.id); c.births++;
+      colLog(c,`${ch.name} lahir dari ${mom.name} dan ${dad.name}, anak pertama yang lahir di tanah baru.`); }
+    // menikah antar perantau
+    const singles=ppl.filter(u=>isAdult(u)&&!u.spouse); const m=singles.find(u=>u.sex==='m'), f=singles.find(u=>u.sex==='f'&&u.race===(m&&m.race));
+    if(m&&f&&rnd()<.6){ marry(m,f,true); colLog(c,`${m.name} dan ${f.name} menikah di bawah langit ${c.world}.`); }
+    // menua
+    for(const u of ppl){ if(ageOf(u)>RACE[u.race].adult+55&&rnd()<.25){ u.dead=true; c.deaths++; hist(u,`meninggal karena usia tua di ${c.world}`); colLog(c,`${u.name} meninggal karena usia tua.`); } else if(rnd()<.5) gainXp(u,8); }
+    // tumbuh
+    const n=colonyPeople(c).length; const lv=n>=40?4:n>=26?3:n>=16?2:n>=9?1:0;
+    if(lv>c.level){ c.level=lv; colLog(c,`Koloni berkembang menjadi ${LEVELS[lv]}.`); log(`${c.name} di ${c.world} kini menjadi ${LEVELS[lv]}.`,'life',null); }
+    if(c.wall<lv) c.wall++;
+    // jinakkan monster / temuan
+    if(rnd()<.25){ const mk=pick(W.mons); c.tamed.push(mk); if(c.tamed.length>8) c.tamed.shift(); colLog(c,`Para perantau berhasil menjinakkan seekor ${MON[mk]?.n||mk}.`); }
+    // kirim kapal pulang
+    if(c.level>=1&&rnd()<.3){ const home=TN(c.town); if(home&&coastPoint(home)){ const cp=coastPoint(home); const ex=(cp.x+.5)*TS, ey=(cp.y+.5)*TS; let vx=ex-(home.cx+1)*TS, vy=ey-(home.cy+1)*TS; const L=Math.hypot(vx,vy)||1;
+      const gold=ri(40,120)+c.level*40; G.sailing.push({id:newId(),x:clamp(ex+vx/L*MW*TS*.5,-20,MW*TS+20),y:clamp(ey+vy/L*MH*TS*.5,-20,MH*TS+20),tx:ex,ty:ey,mode:'in',ret:1,retTown:home.id,gold,food:ri(20,60),egg:rnd()<.4?pick(W.mons):null,colName:c.name,world:c.world,name:'Kapal Koloni'}); colLog(c,`Mengirim kapal pulang membawa ${gold} emas.`); } }
+  }
+}
+function yearly17(){ tribesYearly(); disasterYearly(); voyageYearly(); colonyYearly(); }
+function daily17(){ disasterDaily(); }
 
 /* ================= SPRITE PIKSEL ================= */
 
@@ -7278,6 +7432,8 @@ function drawLabels(g,z,vis){
     g.fillStyle='#120c0a'; g.beginPath(); g.ellipse(x,y+3,5,5,0,Math.PI,0); g.fill(); g.fillRect(x-5,y+3,10,1);
     g.fillStyle='#e8dcc8'; g.fillRect(x-9,y+5,3,1); g.fillRect(x+6,y+5,2,1); g.fillRect(x+7,y+4,1,1); g.fillStyle='#8a3a2a'; g.fillRect(x+9,y-4,1,7); g.fillRect(x+8,y-5,3,1);
     if(z>=1.4) txt(`${d.name}${d.captives.length?` · ${d.captives.length} tawanan`:''}`,x,y+16,d.captives.length?'#ffb0a0':'#e0c8a0',Math.max(7,10/z)); }
+  for(const s of G.sailing||[]){ if(s.mode==='wait') continue; const x=Math.round(s.x), y=Math.round(s.y); if(!vis(x,y)) continue; g.fillStyle='#4a2c18'; g.fillRect(x-18,y,36,5); g.fillRect(x-15,y+5,30,3); g.fillStyle='#6a4426'; g.fillRect(x-18,y,36,2); g.fillStyle='#2a1a10'; g.fillRect(x-1,y-26,2,26); g.fillStyle='#f0e8d0'; g.fillRect(x-9,y-24,18,13); g.fillRect(x-16,y-16,8,8); g.fillStyle=s.ret?'#3a8a5a':'#3a6ac8'; g.fillRect(x-5,y-21,10,5); g.fillStyle='#e8f4ff'; g.fillRect(x-20,y+7,5,1); g.fillRect(x+15,y+7,5,1); if(z>=1) txt(s.ret?'Kapal Koloni':s.name,x,y+16,'#bfe0ff',Math.max(7,10/z)); }
+  for(const s of G.sailing||[]){ if(s.mode!=='wait'||!vis(s.x,s.y)) continue; const x=Math.round(s.x), y=Math.round(s.y); g.fillStyle='#4a2c18'; g.fillRect(x-18,y,36,5); g.fillStyle='#2a1a10'; g.fillRect(x-1,y-22,2,22); g.fillStyle='#e8dcc0'; g.fillRect(x-8,y-20,16,11); }
   if(G.hv&&G.hv.ship){ const s=G.hv.ship, x=Math.round(s.x), y=Math.round(s.y); if(vis(x,y)){ g.fillStyle='#4a2c18'; g.fillRect(x-22,y,44,6); g.fillRect(x-19,y+6,38,3); g.fillStyle='#6a4426'; g.fillRect(x-22,y,44,2); g.fillStyle='#2a1a10'; g.fillRect(x-1,y-30,2,30); g.fillRect(x-14,y-22,1,22); g.fillRect(x+13,y-18,1,18); g.fillStyle='#ece2c8'; g.fillRect(x-10,y-28,20,14); g.fillRect(x-20,y-20,11,10); g.fillRect(x+9,y-16,9,8); g.fillStyle='#8a2a2a'; g.fillRect(x-6,y-24,12,6); g.fillStyle='#e8e8f0'; g.fillRect(x-4,y-23,1,4); g.fillRect(x+3,y-23,1,4); g.fillRect(x-2,y-22,4,1); g.fillStyle='#c8a050'; g.fillRect(x+1,y-34,6,3); g.fillStyle='#e8f4ff'; g.fillRect(x-24,y+8,6,1); g.fillRect(x+18,y+8,6,1); if(z>=1) txt('Kapal Hunter',x,y+18,'#ffd36a',Math.max(7,10/z)); } }
   for(const b of G.boats||[]){ if(!vis(b.x,b.y)) continue; const x=Math.round(b.x), y=Math.round(b.y); g.fillStyle='#6a4426'; g.fillRect(x-5,y,10,2); g.fillRect(x-4,y+2,8,1); g.fillStyle='#8a5a32'; g.fillRect(x-5,y,10,1); g.fillStyle='#e8e0cc'; g.fillRect(x,y-6,1,6); g.fillRect(x+1,y-5,3,4); g.fillStyle='#4a4a5a'; g.fillRect(x-3,y-3,2,3); g.fillStyle='rgba(255,255,255,.35)'; g.fillRect(x-7+(Math.floor(performance.now()/300)%2),y+3,3,1); }
   for(const n of G.nests){ const x=(n.x+.5)*TS, y=(n.y+.5)*TS; if(n.legend){ if(!vis(x,y)) continue; g.fillStyle='#4a4238'; g.fillRect(x-7,y-1,3,5); g.fillRect(x+4,y-1,3,5); g.fillRect(x-1,y-3,2,6); g.fillStyle='#d8b860'; g.fillRect(x-7,y-2,3,1); g.fillRect(x+4,y-2,3,1); g.fillRect(x-1,y-4,2,1); if(Math.floor(performance.now()/600)%2){ g.fillStyle='#ffe9a0'; g.fillRect(x,y-6,1,1); } if(z>=1.1) txt(`★ ${n.name}`,x,y+12,legendAlive(n)?'#ffd36a':'#b8a880',Math.max(7,10/z)); continue; }
@@ -7538,7 +7694,7 @@ function kingdomHtml(){
       return `<h4>Perdagangan</h4><p class="sub" style="margin:0">${st?'Tahun ini':'Tahun lalu'}: ${show.trips} perjalanan kafilah, nilai ${Math.round(show.value)} emas${parts?` · mitra: ${parts}`:''}.</p>`; })()}
     ${(()=>{ const ppl2=ppl.filter(isAdult); const c={atas:0,menengah:0,bawah:0}; for(const u of ppl2) c[u.kelas||'bawah']++; const sc=U(k.scout);
       return `<h4>Masyarakat</h4><p class="sub" style="margin:0">Kalangan atas ${c.atas} · menengah ${c.menengah} · bawah ${c.bawah}${k.zoning?' · <span style="color:#f0a59d">wilayah dibagi per kelas (pajak bawah lebih berat)</span>':''}${sc?`<br>Pencari Bakat: <span class="link" data-uid="${sc.id}">${esc(sc.name)}</span> (IQ ${sc.iq})`:''}</p>`; })()}
-    ${hvHtml(k)}${k.hunter?'':isekaiHtml(k)}${foodHtml(k)}${potShopHtml(k)}${dipHtml(k)}
+    ${hvHtml(k)}${k.hunter?'':isekaiHtml(k)}${foodHtml(k)}${potShopHtml(k)}${dipHtml(k)}${colonyHtml(k)}
     <h4>Pemukiman</h4>
     ${towns.map(t=>{ const bl=G.blds.filter(b=>b.town===t.id&&b.type!=='tenda'); const done=bl.filter(b=>b.done).length; const site=bl.find(b=>!b.done);
       return `<div class="sub"><span class="link" data-goto="${(t.cx+1)*TS},${(t.cy+1)*TS}">${esc(t.name)}</span> ${t.cap?'(ibu kota)':'(desa)'} · ${t.pop||0} jiwa · ${done}/${bl.length} bangunan · tembok ${t.wall.state==='done'?'berdiri':t.wall.state==='building'?Math.round(t.wall.progress/BLD.tembok.work*100)+'%':'belum'}${site?` · sedang membangun ${BLD[site.type].n} ${Math.round(site.progress/site.work*100)}%`:''}<br>Lumbung: pangan ${Math.round(t.stock.food)} · kayu ${Math.round(t.stock.wood)} · batu ${Math.round(t.stock.stone)} · bijih ${Math.round(t.stock.ore)} · barang ${Math.round(t.stock.goods)}
@@ -7703,7 +7859,7 @@ function loadGame(){
 /* ---------- loop ---------- */
 let lastT=0, acc=0;
 function stats(){
-  const hum=G.units.filter(u=>!u.dead&&u.race!=='monster'&&!u.flags.infil).length;
+  const hum=G.units.filter(u=>!u.dead&&u.race!=='monster'&&!u.flags.infil&&!u.flags.abroad).length;
   const mon=G.units.filter(u=>!u.dead&&u.race==='monster').length;
   $('stats').innerHTML=`<span>Tahun <b>${yearInt()}</b></span><span><b>${SEASONS[seasonIdx()]}</b> hari ${dayOfYear()%2+1} · ${timeStr()}</span><span>Jiwa <b>${hum}</b></span><span>Kerajaan <b>${G.kingdoms.filter(k=>k.alive).length}</b></span><span>Monster <b>${mon}</b></span>`;
   const pend=G.gods.some(g=>g.pending); $('godBadge').hidden=!pend;
@@ -8227,6 +8383,7 @@ function dvParty(){ return UI.dv&&G.parties.find(p=>p.id===UI.dv.pid); }
 function floorWindow(s,f){ const ev=s.ev; const st=(ev.find(e=>e.k==='floor'&&e.f===f)||{t:0}).t; const nx=ev.find(e=>e.k==='floor'&&e.f===f+1); const end=nx?nx.t:(ev.find(e=>e.k==='exit')||{t:s.T}).t; return [st,Math.max(st+1,end)]; }
 function drawDV(){
   if(UI.dv&&UI.dv.uid) return drawTV();
+  if(UI.dv&&UI.dv.colony) return drawColony();
   const cv=$('dvc'); if(!cv) return; const r=cv.getBoundingClientRect(); const dpr=Math.min(2,window.devicePixelRatio||1);
   if(cv.width!==Math.round(r.width*dpr)||cv.height!==Math.round(r.height*dpr)){ cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr); }
   const g=cv.getContext('2d'); g.imageSmoothingEnabled=false; g.setTransform(1,0,0,1,0,0); g.fillStyle='#0b0910'; g.fillRect(0,0,cv.width,cv.height);
@@ -8348,12 +8505,14 @@ function unitExtra9(u){
   if(u.flags.disciples&&u.flags.disciples.length) h+=`<dt>Murid</dt><dd>${u.flags.disciples.map(id=>personLink(id)).join(', ')}</dd>`;
   if(u.flags.champ) h+=`<dt>Turnamen</dt><dd>${u.flags.champ}× juara</dd>`; else if(u.flags.tourney) h+=`<dt>Turnamen</dt><dd>Sedang bertanding di arena</dd>`;
   if(u.flags.battle) h+=`<dt>Perang</dt><dd>Dikirim ke medan pertempuran</dd>`;
+  if(u.flags.abroad){ const c=(G.colonies||[]).find(x=>x.id===u.flags.abroad); h+=`<dt>Dunia lain</dt><dd>${c?`Tinggal di ${esc(c.name)}, ${esc(c.world)} · <span class="link" data-colony="${c.id}">Lihat koloni</span>`:'Sedang berlayar'}</dd>`; }
   if(u.flags.origin) h+=`<dt>Asal</dt><dd>${esc(u.flags.origin)} (datang dengan kapal)</dd>`;
   if(u.flags.allyWins) h+=`<dt>Perburuan aliansi</dt><dd>${u.flags.allyWins} kemenangan</dd>`;
   if(u.flags.haul) h+=`<dt>Tugas Tamer</dt><dd>${u.flags.haul.phase==='go'?'Menjemput':'Menyeret'} bangkai ${esc(MON[u.flags.haul.mk].n)} ke ${esc(BLD.lelang.n)}</dd>`;
   return h;
 }
 function initUI6(){
+  $('pbody').addEventListener('click',e=>{ const b=e.target.closest('[data-colony]'); if(b) openColony(+b.dataset.colony); });
   $('pbody').addEventListener('click',e=>{ const b=e.target.closest('[data-arena]'); if(!b) return; const bd=B(+b.dataset.arena); if(bd){ centerOn((bd.x+4)*TS,(bd.y+3)*TS,Math.max(R_.cam.z,3)); UI.sel={type:'bld',id:bd.id}; setTab('detail'); } });
   $('pbody').addEventListener('click',e=>{ const b=e.target.closest('[data-tvu]'); if(b) openTV(+b.dataset.tvu); });
   $('pbody').addEventListener('click',e=>{ const b=e.target.closest('[data-pubmap]'); if(!b) return; const d=G.dungeons.find(x=>x.id===+b.dataset.pubmap); if(d){ const r=publishMap(d); if(r) toast(r); UI.pdirty=true; renderPanel(true); } });
@@ -8448,6 +8607,50 @@ function arenaPanel(bd){
   return `<div class="card"><h3>Arena Turnamen ${t?esc(t.name):''}</h3><p class="sub" style="margin:0">Turnamen Kerajaan digelar tiap 4 tahun di ibu kota terkaya. 8 petarung terkuat dunia bertarung sampai satu juara tersisa.</p>
   ${T?`<h4>Turnamen tahun ${T.y}</h4><p class="sub">${T.state==='gather'?'Peserta sedang berkumpul.':T.cur?`Laga sekarang: ${personLink(T.cur.a)} vs ${personLink(T.cur.b)}`:'Menunggu laga berikutnya.'}</p><p class="sub">Peserta: ${T.ent.map(id=>personLink(id)).join(', ')}</p>${T.log.length?`<ul class="log">${T.log.map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:''}`:'<p class="sub">Belum ada turnamen berlangsung.</p>'}
   ${last&&!T?`<h4>Turnamen terakhir (Th ${last.y})</h4><ul class="log">${last.log.map(l=>`<li>${esc(l)}</li>`).join('')}</ul>`:''}</div>`;
+}
+
+/* ---------- dunia lain: daftar koloni & penonton koloni ---------- */
+function colonyHtml(k){
+  const cs=(G.colonies||[]).filter(c=>c.from===k.id); const sail=(G.sailing||[]).filter(s=>s.from===k.id&&!s.ret);
+  let h='';
+  if(G.disaster&&G.disaster.towns.some(id=>TN(id)&&TN(id).kingdom===k.id)) h+=`<p class="sub" style="color:#f0b060;margin:4px 0">⚠ ${esc(DISASTERS[G.disaster.type].n)} sedang melanda wilayah ini.</p>`;
+  const peace=(G.dens||[]).filter(d=>d.peace===k.id&&denMembers(d).length); if(peace.length) h+=`<p class="sub" style="margin:4px 0">Berdamai dengan: ${peace.map(d=>esc(d.name)).join(', ')}</p>`;
+  if(!cs.length&&!sail.length) return h;
+  h+=`<h4>Dunia lain</h4>`;
+  for(const s of sail) h+=`<p class="sub" style="margin:2px 0">${esc(s.name)} ${s.mode==='wait'?'menunggu penumpang di pantai':'sedang berlayar'} menuju ${esc(s.world)} (${s.crew.length} orang).</p>`;
+  for(const c of cs){ const n=colonyPeople(c).length; h+=`<div class="row" style="justify-content:space-between;margin:2px 0"><span class="sub">${esc(c.name)} · ${esc(c.world)} · ${c.lost?'<span style="color:#ff9a8a">hilang</span>':`${LEVELS[c.level]} · ${n} jiwa`}</span>${c.lost?'':`<button class="btn" data-colony="${c.id}">Lihat</button>`}</div>`; }
+  return h;
+}
+function openColony(id){ UI.dv={colony:id}; $('dview').hidden=false; }
+function drawColony(){
+  const cv=$('dvc'); if(!cv) return; const r=cv.getBoundingClientRect(); const dpr=Math.min(2,window.devicePixelRatio||1);
+  if(cv.width!==Math.round(r.width*dpr)||cv.height!==Math.round(r.height*dpr)){ cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr); }
+  const g=cv.getContext('2d'); g.imageSmoothingEnabled=false; g.setTransform(1,0,0,1,0,0);
+  const c=(G.colonies||[]).find(x=>x.id===UI.dv.colony); const hud=$('dvhud'); if(!c){ closeDV(); return; }
+  const W=NEW_WORLDS.find(w=>w.n===c.world)||NEW_WORLDS[0];
+  const GW=48, GH=30; const top=cv.height*.40, avail=cv.height*.46; const ts=Math.max(4,Math.floor(Math.min(cv.width/GW,avail/GH))); const ox=Math.floor((cv.width-ts*GW)/2), oy=Math.floor(top+(avail-ts*GH)/2);
+  g.fillStyle='#1d3a5f'; g.fillRect(0,0,cv.width,cv.height);
+  const rr=mulberry(c.seed); const blobs=[]; for(let i=0;i<7;i++) blobs.push({x:10+rr()*28,y:6+rr()*18,r:6+rr()*7}); const cx=blobs.reduce((s,b)=>s+b.x,0)/blobs.length, cy=blobs.reduce((s,b)=>s+b.y,0)/blobs.length+1; blobs.push({x:cx,y:cy,r:8});
+  const land=(x,y)=>blobs.some(b=>Math.hypot(x-b.x,(y-b.y)*1.3)<b.r);
+  const lc=W.c;
+  for(let y=0;y<GH;y++) for(let x=0;x<GW;x++){ if(land(x,y)){ g.fillStyle=(x+y)%2?lc:shade(lc,.08); g.fillRect(ox+x*ts,oy+y*ts,ts,ts); if(!land(x,y+1)){ g.fillStyle='#dcc994'; g.fillRect(ox+x*ts,oy+(y+.7)*ts,ts,ts*.3); } } }
+  const now=performance.now(); const sc=ts/7; const frm=Math.floor(now/160)%4;
+  const spr=(img,X,Y,s,fl)=>{ g.save(); g.translate(Math.round(X),Math.round(Y)); if(fl) g.scale(-1,1); g.drawImage(img,-FX*s,-FY*s,img.width*s,img.height*s); g.restore(); };
+  // bangunan
+  const nb=2+c.level*3; for(let i=0;i<nb;i++){ const a=i/nb*Math.PI*2, d=2+(i%3)*1.6; const X=ox+(cx+Math.cos(a)*d*1.6)*ts, Y=oy+(cy+Math.sin(a)*d)*ts;
+    if(c.level<1||i%3===0&&c.level<2){ g.fillStyle='#b89a6a'; g.beginPath(); g.moveTo(X-ts*.9,Y); g.lineTo(X,Y-ts*1.3); g.lineTo(X+ts*.9,Y); g.fill(); g.fillStyle='#4a3a2a'; g.fillRect(X-ts*.15,Y-ts*.6,ts*.3,ts*.6); }
+    else { g.fillStyle='#8a6a4a'; g.fillRect(X-ts*.8,Y-ts*1,ts*1.6,ts); g.fillStyle='#6a3a2a'; g.fillRect(X-ts*1,Y-ts*1.5,ts*2,ts*.6); g.fillStyle='#ffd36a'; g.fillRect(X-ts*.2,Y-ts*.7,ts*.4,ts*.4); } }
+  if(c.wall){ g.strokeStyle='#7a5a3a'; g.lineWidth=Math.max(1,ts*.25); g.beginPath(); g.ellipse(ox+cx*ts,oy+cy*ts,ts*(7+c.level),ts*(4.5+c.level*.6),0,0,7); g.stroke(); }
+  // api unggun
+  g.fillStyle=Math.floor(now/150)%2?'#ffb040':'#ff7a2a'; g.fillRect(ox+cx*ts-ts*.3,oy+cy*ts-ts*.5,ts*.6,ts*.6);
+  // warga
+  const ppl=colonyPeople(c);
+  ppl.slice(0,30).forEach((u,i)=>{ const t=now/4000+i*1.7; const X=ox+(cx+Math.cos(t+i)*(3+i%5))*ts, Y=oy+(cy+Math.sin(t*1.3+i)*(2+i%3))*ts+ts; spr(unitSprite(u,'side',frm),X,Y,sc,Math.cos(t+i)<0); });
+  c.tamed.slice(-5).forEach((mk,i)=>{ const M=MON[mk]; if(!M) return; const t=now/3000+i; spr(monSprite({k:M.k,c:M.c,race:M.race,job:M.job,eye:M.eye,dir:'side'},frm),ox+(cx-4+i*2+Math.sin(t))*ts,oy+(cy+4)*ts,sc*Math.min(1.3,M.sc||1),false); });
+  // monster liar di tepi
+  W.mons.slice(0,4).forEach((mk,i)=>{ const M=MON[mk]; if(!M) return; const b=blobs[(i+2)%blobs.length]; const t=now/2500+i*2; const X=ox+(b.x+Math.cos(t)*b.r*.6)*ts, Y=oy+(b.y+Math.sin(t)*b.r*.4)*ts; spr(monSprite({k:M.k,c:M.c,race:M.race,job:M.job,eye:M.eye,dir:'side'},frm),X,Y,sc*Math.min(1.4,M.sc||1),Math.cos(t)>0); });
+  hud.innerHTML=`<div class="box"><b style="color:#9fd8ff">${esc(c.name)}</b> · ${esc(c.world)} · ${LEVELS[c.level]}<br><span class="sub">${ppl.length} jiwa · ${c.births} lahir · ${c.deaths} gugur · didirikan th ${c.founded}${U(c.leader)&&!U(c.leader).dead?` · pemimpin ${esc(U(c.leader).name)}`:''}</span><br><span class="sub">${esc(W.d)}</span></div>
+  <div class="box"><ul class="log">${c.log.slice(0,3).map(l=>`<li>${esc(l)}</li>`).join('')}</ul></div>`;
 }
 
 </script>
