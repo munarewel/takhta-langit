@@ -1115,6 +1115,7 @@ function chooseTask(u){
   if(u.hq&&!isNight()){ u.task={k:'hq'}; return; }
   if(libraryTask(u)) return;
   if(towerTask(u)) return;
+  if((u.flags.mentor||u.flags.disciples)&&sparTask(u)) return;
   if(u.dungeonLord){ u.inside=true; u.task={k:'idle',t:200}; return; }
   if(u.flags.murder&&isNight()&&isAdult(u)&&murderTask(u)) return;
   if(t&&alarmOn(t)&&!canFight(u)&&home){ const d=bldDoor(home); goTo(u,d.x,d.y); u.task={k:'sleep'}; return; }
@@ -1438,6 +1439,7 @@ function runTask(u){
     case 'ferry': if(u.flags.ferry) ferryStep(u); else u.task=null; break;
     case 'read': readStep(u,k); break;
     case 'tower': towerStep(u,k); break;
+    case 'spar': sparStep(u,k); break;
     case 'bsum': bsStep(u); break;
     case 'bsesc': bsEscortStep(u); break;
     case 'haul': haulStep(u); break;
@@ -1846,6 +1848,7 @@ function fightStep(u,k){
   const e=U(k.target);
   if(!e||e.dead||e.inside||e.downed||!isHostile(u,e)){ u.task=null; return; }
   if(hasFx(u,'fear')||hasFx(u,'charm')){ u.task=null; return; }
+  if(hasFx(u,'stun')){ u.path=[]; u.moving=false; return; }
   if(hasFx(u,'blind')){ u.path=[]; u.moving=false; if(G.step%20===0) FX_QUEUE.push({k:'say',x:u.x,y:u.y-24,t:16,s:'?!'}); return; }
   const d=dist(u.x,u.y,e.x,e.y);
   if(d>200){ u.task=null; return; }
@@ -2539,11 +2542,12 @@ function basicAttack(u,e,rng){
   const def=u.race==='monster'?MON[u.mk]:null;
   let dmg=(u.atk+wAtk(u.weapon)*.8)*(.75+rnd()*.5)*(u.race==='monster'?1:(.9+(u.iq||100)/1000)); if(has(u,'Kuat')) dmg*=1.05; if(hasFx(u,'curse')) dmg*=.6;
   if(!def) dmg=itemDmgMod(u,dmg,rng>20);
+  if(!def&&martial(u)&&!isFistW(u.weapon)) dmg+=u.lvl*.8;
   const ranged=rng>20;
   const col=def&&def.shot?def.shot:roleOf(u)==='penyihir'?'#9fd8ff':roleOf(u)==='penyembuh'?'#b8ffb8':'#e8e0cc';
   FX_QUEUE.push(ranged?{k:'bolt',x:u.x,y:u.y-10,x2:e.x,y2:e.y-8,t:9,c:col,orb:!!(def&&def.shot)}:{k:'slash',x:e.x,y:e.y-10,t:9,flip:u.flip});
   if(def&&def.splash){ aoe(u,e.x,e.y,def.splash,dmg,def.shot); }
-  else { const d=damage(e,dmg,u); if(def&&def.drain&&d) u.hp=Math.min(u.maxHp,u.hp+d*def.drain); if(!def&&d) enchOnHit(u,e,d); }
+  else { const d=damage(e,dmg,u); if(def&&def.drain&&d) u.hp=Math.min(u.maxHp,u.hp+d*def.drain); if(!def&&d) enchOnHit(u,e,d); if(!def&&d&&!ranged&&martial(u)) martialCombo(u,e,dmg); }
   const oh=(u.flags&&u.flags.elemHit)||(u.variant&&VARIANTS[u.variant].onHit)||(def&&def.onHit); if(oh&&!e.dead&&rnd()<oh.p) applyFx(e,oh.k,oh.k==='slow'?90:150,u);
   // penyihir manusia memberi efek sesuai elemen
   if(!def&&!e.dead&&ranged){ const bn=BERKAT[u.b].n; if(/Api/.test(bn)&&rnd()<.3) applyFx(e,'burn',120,u); else if(/Air|Es/.test(bn)&&rnd()<.3) applyFx(e,'slow',90,u); else if(/Hitam|Necro/.test(bn)&&rnd()<.25) applyFx(e,'curse',120,u); }
@@ -2949,6 +2953,7 @@ function makeWeapon(u,t){
   const atk=Math.round(ORE[mat].atk*RARITY[ri_][1]*(.9+rnd()*.2));
   let name=`${type} ${ORE[mat].n}`; if(ri_>=2) name+=` ${pick(['Tajam','Kokoh','Ringan','Berukir','Seimbang','Bercahaya'])}`; if(ri_>=4) name=`${type} ${pick(WEPITHET)}`;
   const w={id:newId(),name,type,mat,rar:ri_,atk,maker:u.id,makerName:u.name,y:yearInt(),kills:0,owners:[]};
+  fistWeapon(u,t,w);
   t.armory=t.armory||[]; t.armory.push(w); if(t.armory.length>40){ t.armory.sort((a,b)=>b.atk-a.atk); t.armory.length=40; }
   u.flags.forged=(u.flags.forged||0)+1; gainXp(u,2+ri_*3);
   if(ri_>=4){ u.flags.legend=name; checkDream(u); if(!u.title) u.title='Empu'; hist(u,`menempa ${RARITY[ri_][0]} "${name}"`);
@@ -2958,7 +2963,7 @@ function makeWeapon(u,t){
 function wName(w){ return !w?'':typeof w==='string'?w:w.name; }
 function wAtk(w){ return !w?0:typeof w==='string'?10:w.atk+wAtkBonus(w); }
 function wPrice(w){ return Math.round(w.atk*4*(1+w.rar*.6)); }
-function equip(u,w,how){ if(u.weapon&&typeof u.weapon==='object'){ const t=TN(u.town); if(t&&how!=='warisan'){ t.armory=t.armory||[]; t.armory.push(u.weapon); } } w.owners=(w.owners||[]).concat(u.name).slice(-6); u.weapon=w; hist(u,`${how==='warisan'?'mewarisi':how==='hadiah'?'menerima':'membeli'} ${w.name}`); }
+function equip(u,w,how){ if(martial(u)&&w.type!=='Tinju'&&how!=='paksa'){ const t=TN(u.town); if(t){ t.armory=t.armory||[]; t.armory.push(w); } return; } if(u.weapon&&typeof u.weapon==='object'){ const t=TN(u.town); if(t&&how!=='warisan'){ t.armory=t.armory||[]; t.armory.push(u.weapon); } } w.owners=(w.owners||[]).concat(u.name).slice(-6); u.weapon=w; hist(u,`${how==='warisan'?'mewarisi':how==='hadiah'?'menerima':'membeli'} ${w.name}`); }
 function armoryDaily(t){
   if(!t.armory||!t.armory.length) return;
   const k=K(t.kingdom);
@@ -2966,7 +2971,7 @@ function armoryDaily(t){
   fighters.sort((a,b)=>b.lvl-a.lvl);
   for(const u of fighters){
     const cur=wAtk(u.weapon);
-    const opts=t.armory.filter(w=>w.atk>cur+1).sort((a,b)=>b.atk-a.atk);
+    const opts=t.armory.filter(w=>w.atk>cur+1&&(martial(u)?w.type==='Tinju':w.type!=='Tinju')).sort((a,b)=>b.atk-a.atk);
     for(const w of opts){
       const price=wPrice(w);
       if(u.career==='penjaga'&&k&&k.treasury>price*2&&rnd()<.5){ k.treasury-=price; t.armory=t.armory.filter(x=>x!==w); equip(u,w,'hadiah'); break; }
@@ -5086,7 +5091,7 @@ function worldUpgrade12(){
   if(G.pendingLegends) G.pendingLegends=G.pendingLegends.filter(k=>k!=='chaoticDragon');
 }
 function daily11(){ worldUpgrade11(); worldUpgrade12(); worldUpgrade13(); }
-function yearly11(){ chaosYearly(); hvVisitYearly(); advYearly(); }
+function yearly11(){ chaosYearly(); hvVisitYearly(); advYearly(); yearly15(); }
 /* ---------- kapal Hunter dari negeri lain ---------- */
 const HV_LANDS=['Negeri Kabut Utara','Kepulauan Taring','Benua Pasir Merah','Lembah Seribu Sarang','Kerajaan Es Varn','Tanah Rawa Selatan','Dunia Seberang Timur'];
 function hvVisitYearly(){
@@ -5460,7 +5465,7 @@ function ferryStep(tm){
 }
 function ferryEnd(tm,g){ tm.flags.ferry=null; tm.task=null; tm.path=[]; if(g) for(const id of g.members){ const v=U(id); if(v) v.flags.riding=null; } const t=TN(tm.town); if(t) goTo(tm,(t.cx+1)*TS+ri(-20,20),(t.cy+2)*TS); }
 function daily13(){
-  towerDaily();
+  towerDaily(); daily15();
   for(const t of G.towns){ guildQuests2(t); mercDaily(t); }
   const ht=hvTown&&hvTown(); if(ht) eggBuyDaily(ht);
 }
@@ -5573,6 +5578,111 @@ function twFinish(u,t,k){
   twLog(t,`${u.name} (Lv ${u.lvl}) ${cleared?`menembus ${cleared} lantai`:'belum menembus lantai baru'}${lost?`, lalu tersingkir di lantai ${lost.f} oleh ${lost.mons.map(m=>MON[m].n).join(', ')} dan terlempar keluar`:''}.${s.endNote?' '+s.endNote:''}`);
   u.flags.twLast={y:yearInt(),fl:s.fl,i:s.i};
 }
+
+/* =====================================================================
+   SIMULASI 15: bela diri tangan kosong, guru & murid (penerus), dojo
+   ===================================================================== */
+BERKAT.push({n:'Pegulat',s:1,role:'prajurit',job:'petarung'});
+BERKAT.push({n:'Biksu Bela Diri',s:3,role:'prajurit',job:'biksu'});
+BERKAT.push({n:'Dewa Tinju',s:5,role:'prajurit',job:'biksu',uniq:1});
+BLD.dojo={n:'Dojo',w:6,h:5,work:900,wood:35,stone:15};
+const FIST_W=['Sarung Tinju','Cakar Besi','Pelindung Lengan','Buku Jari Baja'];
+function martial(u){ const b=BERKAT[u.b]; return !!b&&u.race!=='monster'&&(b.job==='petarung'||b.job==='biksu'); }
+function fistStyle(u){ const l=u.lvl; return l>=30?'Tinju Naga':l>=15?'Tinju Angin':'Tinju Besi'; }
+function isFistW(w){ return w&&typeof w==='object'&&w.type==='Tinju'; }
+/* pukulan beruntun, stun, dan jurus pamungkas — dipanggil setelah serangan biasa */
+function martialCombo(u,e,dmg){
+  if(e.dead) return;
+  const st=fistStyle(u), b=BERKAT[u.b];
+  let hits=0; if(rnd()<.32+u.lvl*.006) hits++; if(st!=='Tinju Besi'&&rnd()<.18+u.lvl*.004) hits++;
+  for(let i=0;i<hits&&!e.dead;i++){ damage(e,dmg*.6,u); FX_QUEUE.push({k:'slash',x:e.x+ri(-3,3),y:e.y-10-i*2,t:7,flip:u.flip}); }
+  if(!e.dead&&rnd()<.06+(st==='Tinju Naga'?.06:0)){ applyFx(e,'stun',40,u); FX_QUEUE.push({k:'say',x:e.x,y:e.y-26,t:30,s:'@_@'}); }
+  if(!e.dead&&st==='Tinju Naga'&&rnd()<.05){ FX_QUEUE.push({k:'say',x:u.x,y:u.y-28,t:50,s:'Tinju Naga!'}); FX_QUEUE.push({k:'nova',x:e.x,y:e.y-8,r:20,c:'#ffb040',t:24,ring:1}); damage(e,dmg*2.6,u); }
+  if(!e.dead&&b.s>=4&&rnd()<.04){ FX_QUEUE.push({k:'say',x:u.x,y:u.y-28,t:50,s:'Seribu Tinju!'}); for(let i=0;i<5&&!e.dead;i++) damage(e,dmg*.7,u); }
+}
+/* bengkel juga membuat senjata tinju bila ada petarung di kota */
+function fistWeapon(u,t,w){
+  if(!w||w.armor||!G.units.some(v=>!v.dead&&v.town===t.id&&martial(v))||rnd()>.35) return w;
+  w.type='Tinju'; w.name=`${pick(FIST_W)} ${ORE[w.mat]?ORE[w.mat].n:''}${w.rar>=3?' '+pick(['Berukir','Bergetar','Membara']):''}`.trim(); w.atk=Math.round(w.atk*.85);
+  return w;
+}
+/* ---------- guru & murid ---------- */
+function canMentor(u){
+  if(u.dead||!isAdult(u)||u.race==='monster'||u.flags.disciples&&u.flags.disciples.filter(id=>U(id)&&!U(id).dead).length>=2) return false;
+  const vet=u.flags.hrank===4||u.flags.epithet&&/Veteran/.test(u.flags.epithet);
+  const solo=wantsSolo&&wantsSolo(u);
+  return u.lvl>=7&&(vet||solo||ageOf(u)>=RACE[u.race].adult+16||martial(u)&&u.lvl>=10)&&(u.career==='petualang'||u.career==='hunter'||u.career==='guild'||stageOf(u)==='tua'||martial(u));
+}
+function mentorYearly(){
+  for(const u of G.units){
+    if(!canMentor(u)||rnd()>.3) continue;
+    const t=TN(u.town); if(!t) continue;
+    // prioritas: anak sendiri, lalu petualang muda di kota yang sama
+    const kids=u.children.map(U).filter(c=>c&&!c.dead&&!c.flags.mentor&&(stageOf(c)==='remaja'||isAdult(c)&&c.lvl<u.lvl*.6)&&c.town===u.town);
+    const young=G.units.filter(v=>!v.dead&&v!==u&&v.town===u.town&&!v.flags.mentor&&isAdult(v)&&v.career===(u.career==='hunter'?'hunter':'petualang')&&v.lvl<=Math.max(5,u.lvl*.6)&&ageOf(v)<RACE[v.race].adult+10&&(!martial(u)||martial(v)||COMBAT_ROLES.has(roleOf(v))));
+    const d=kids[0]||young.sort((a,b)=>((b.rel[u.id]?.f)||0)-((a.rel[u.id]?.f)||0)+rnd()*10-5)[0];
+    if(!d) continue;
+    d.flags.mentor=u.id; d.flags.mentorSince=yearInt(); u.flags.disciples=(u.flags.disciples||[]).filter(id=>U(id)&&!U(id).dead).concat(d.id);
+    const own=u.children.includes(d.id);
+    hist(u,`mengangkat ${d.name} sebagai murid`); hist(d,`menjadi murid ${u.name}`);
+    const r=relOf(d,u.id); r.f=Math.min(100,r.f+20);
+    const why=u.flags.hrank===4?'Veteran':wantsSolo(u)?'petualang penyendiri':martial(u)?'ahli bela diri':'petualang tua';
+    log(own?`${fullName(u)} mulai melatih anaknya sendiri, ${d.name}, untuk meneruskan jalan petualangannya.`:`${fullName(u)}, seorang ${why}, akhirnya mengangkat murid: ${d.name}. "Suatu hari kau harus melampauiku."`,'life',{x:u.x,y:u.y});
+    if(martial(u)&&t&&K(t.kingdom)?.capital===t.id&&!townBuildings(t,'dojo').length){ const s=freeSlot(t)||(typeof findSpot==='function'?findSpot(t,6,5):null); if(s){ addBuilding(t,'dojo',s); log(`${u.name} mendirikan Dojo di ${t.name} untuk melatih murid-muridnya.`,'life',{x:(s.x+3)*TS,y:(s.y+3)*TS}); } }
+  }
+}
+function mentorDaily(){
+  for(const d of G.units){
+    if(d.dead||!d.flags.mentor) continue; const m=U(d.flags.mentor);
+    if(!m||m.dead){ mentorPass(d,m); continue; }
+    if(m.town!==d.town) continue;
+    const together=d.party&&d.party===m.party;
+    if(!together&&m.party&&!d.party&&d.career==='petualang'&&isAdult(d)){ const p=partyOf(m); if(p&&p.state==='rest'&&p.members.length<5) partyJoin(p,d,'diajak gurunya'); }
+    const away=d.party&&partyOf(d)?.state!=='rest'||m.party&&partyOf(m)?.state!=='rest';
+    if(away&&!together&&rnd()<.6) continue;
+    d.flags.trained=(d.flags.trained||0)+1;
+    gainXp(d,6+m.lvl*.6);
+    if(d.flags.trained===12){ // warisan sifat
+      const giv=['Pantang Menyerah','Pemberani','Tangguh','Lincah','Kuat'].filter(x=>has(m,x)&&!has(d,x));
+      if(giv.length){ const tr=giv[0]; d.traits.push(tr); hist(d,`mewarisi sifat ${tr} dari gurunya`); }
+      if(martial(m)&&!martial(d)&&COMBAT_ROLES.has(roleOf(d))) d.flags.fistStyle=fistStyle(m);
+    }
+    if(d.flags.trained===24&&!d.flags.graduated){ d.flags.graduated=1; d.title=d.title||'Penerus '+m.name;
+      if(stageOf(d)!=='remaja'&&isAdult(d)&&d.career==='kerja'){ d.career='petualang'; }
+      log(`${d.name} menyelesaikan latihan bersama ${m.name}. Kini ia dikenal sebagai penerus ${m.name}.`,'hero',{x:d.x,y:d.y}); }
+  }
+}
+function mentorPass(d,m){
+  d.flags.mentor=null; if(d.flags.mentorPassed) return; d.flags.mentorPassed=1;
+  if(m&&m.dead){ hist(d,`kehilangan gurunya, ${m.name}`); d.title=d.title||'Penerus '+m.name;
+    const w=m.weapon&&typeof m.weapon==='object'?m.weapon:null; if(w&&!m.flags.wInherited&&wAtk(d.weapon)<w.atk){ m.flags.wInherited=1; equip(d,w,'warisan'); }
+    if((d.flags.trained||0)>=6) log(`${d.name} berdiri di depan makam gurunya, ${m.name}, dan bersumpah meneruskan jalannya.${w?` Ia kini memegang ${w.name} peninggalan sang guru.`:''}`,'war',{x:d.x,y:d.y}); }
+}
+/* latih tanding: guru & murid saling pukul tanpa melukai */
+function sparTask(u){
+  if(isNight()||rnd()>.05) return false;
+  const m=u.flags.mentor?U(u.flags.mentor):null; const d=!m&&u.flags.disciples?u.flags.disciples.map(U).find(v=>v&&!v.dead&&v.town===u.town&&!v.task):null;
+  const partner=m&&m.town===u.town&&!m.dead&&!(m.task&&['fight','flee','party','hq','ally','sleep'].includes(m.task.k))?m:d; if(!partner) return false;
+  const t=TN(u.town); if(!t) return false; const dj=townBuildings(t,'dojo').find(b=>b.done);
+  const spot=dj?bldDoor(dj):{x:(t.cx+1)*TS+ri(-24,24),y:(t.cy+3)*TS+ri(-6,6)};
+  goTo(u,spot.x-7,spot.y+2); goTo(partner,spot.x+7,spot.y+2);
+  u.task={k:'spar',with:partner.id,t:ri(90,150)}; partner.task={k:'spar',with:u.id,t:u.task.t}; partner.path=partner.path||[];
+  return true;
+}
+function sparStep(u,k){
+  const p=U(k.with); if(!p||p.dead||--k.t<=0){ u.task=null; return; }
+  if(u.path.length) return;
+  u.dir='side'; u.flip=p.x<u.x;
+  if(G.step%14===(u.id%14)){ FX_QUEUE.push({k:'slash',x:p.x,y:p.y-10,t:7,flip:u.flip}); if(rnd()<.2) FX_QUEUE.push({k:'say',x:u.x,y:u.y-26,t:24,s:pick(['Hyah!','Lagi!','Bagus!','Fokus!','Hah!'])}); }
+  if(k.t%40===0) gainXp(u,.6);
+}
+function daily15(){ mentorDaily();
+  for(const t of G.towns){ const fists=(t.armory||[]).filter(w=>w.type==='Tinju'); if(!fists.length) continue;
+    for(const u of G.units){ if(u.dead||u.town!==t.id||!martial(u)||!isAdult(u)||isFistW(u.weapon)) continue; const w=fists.sort((a,b)=>b.atk-a.atk).shift(); if(!w) break;
+      const price=wPrice(w); const pay=Math.min(u.gold,price); u.gold-=pay; const k=K(t.kingdom); if(k) k.treasury=Math.max(0,k.treasury-(price-pay)*.5);
+      t.armory=t.armory.filter(x=>x!==w); equip(u,w,pay<price?'hadiah':'beli'); } }
+}
+function yearly15(){ mentorYearly(); }
 
 /* ================= SPRITE PIKSEL ================= */
 
@@ -6403,6 +6513,8 @@ function drawTiger(P,c,f,eye){
   P(-2,-12,2,8,'#1a1a1a'); P(-3,-5,1,3,'#1a1a1a'); P(0,-5,1,2,'#1a1a1a');
 }
 
+JOBDEF.biksu={cloth:'#e0902a',bare:1,pants:'#e0902a',hat:'headband',bandC:'#f0d040',trim:'#8a3a1a'};
+
 /* =====================================================================
    RENDER: medan, bangunan, warga, efek
    ===================================================================== */
@@ -6525,6 +6637,13 @@ function bldSprite(b){
     R(x+9,y-2,12,5,'#6a5a4a'); R(x+10,y-1,10,3,'#7ab8e0'); R(x+11,y-1,4,1,'#c8e8ff');
     for(let i=0;i<3;i++){ R(x+11+i*3,y-6-i,1,3,'#e8eef6'); R(x+12+i*3,y-9-i,1,2,'#e8eef6'); }
     R(x-14,y-9,4,3,'#3a4a6a'); wins.push([x-14,y-9,4,3]);
+  } else if(b.type==='dojo'){
+    const x=W/2, y=base-2;
+    R(x-22,y-14,44,16,'#e8dcc0'); for(let xx=x-22;xx<x+22;xx+=6) R(xx,y-14,1,16,'#8a6a4a'); R(x-22,y-14,44,1,'#8a6a4a');
+    for(let i=0;i<7;i++) R(x-26+i*2,y-15-i,52-i*4,1,i%2?'#3a3a3a':'#2a2a2a'); R(x-28,y-15,4,2,'#2a2a2a'); R(x+24,y-15,4,2,'#2a2a2a');
+    R(x-6,y-10,12,12,'#4a3020'); R(x-5,y-9,4,10,'#e8dcc0'); R(x+1,y-9,4,10,'#e8dcc0');
+    R(x-4,y-26,8,6,'#f4ecd8'); R(x-3,y-25,6,4,'#c83a3a'); R(x-1,y-24,2,2,'#f4ecd8');
+    R(x-18,y-10,5,5,'#3a4a6a'); R(x+13,y-10,5,5,'#3a4a6a'); wins.push([x-18,y-10,5,5],[x+13,y-10,5,5]);
   } else if(b.type==='menara'){
     const x=W/2, y=base-2, st='#5a5468', lt='#7a7488', dk='#3a3446';
     R(x-20,y-10,40,12,dk); R(x-18,y-12,36,2,lt);
@@ -6812,7 +6931,7 @@ function drawWorld(){
       if((u.corrupt||0)>=50&&fr%2===0){ g.fillStyle='rgba(150,70,220,.85)'; g.fillRect(Math.round(it.x)-1,Math.round(it.y)-(u.mounted?34:27),2,2); }
       if(u.tamer){ const o=U(u.tamer); const k=o&&K(o.kingdom); g.fillStyle=k?k.color:'#7fc98a'; g.fillRect(Math.round(it.x)-2,Math.round(it.y)-3,4,1); }
       if(u.lastHit&&G.step-u.lastHit<220&&u.hp<u.maxHp){ const top=Math.round(it.y)-(u.race==='monster'?(MON[u.mk]&&['hum','wyvern','bear'].includes(MON[u.mk].k)?30:18)*(MON[u.mk]?.sc||1)*(u.variant&&VARIANTS[u.variant].scale||1):(u.mounted?36:30)); const w=u.race==='monster'&&RANK_ORDER.indexOf(MON[u.mk]?.rank)>=4?18:12; g.fillStyle='rgba(0,0,0,.65)'; g.fillRect(Math.round(it.x)-w/2-1,top-1,w+2,3); g.fillStyle=sideOf(u)==='M'?'#e0504a':'#6ad06a'; g.fillRect(Math.round(it.x)-w/2,top,Math.max(0,w*u.hp/u.maxHp),1); }
-      if(u.fx){ let i=0; const top=Math.round(it.y)-(u.race==='monster'?24:34); for(const k in u.fx){ if(u.fx[k].until<=G.step) continue; const c={burn:'#ff8a3a',poison:'#9ad06a',slow:'#7fc8ff',curse:'#a85ad0',fear:'#ffffff',charm:'#ff6fa8',blind:'#fff6a0'}[k]||'#ffffff'; g.fillStyle=c; const x=Math.round(it.x)-4+i*3; if(k==='fear'){ g.fillRect(x,top-3,1,2); g.fillRect(x,top,1,1); } else if(k==='charm'){ g.fillRect(x,top-1,1,1); g.fillRect(x+1,top,1,1); g.fillRect(x-1,top,1,1); } else g.fillRect(x,top-1+(fr%2),2,2); i++; } }
+      if(u.fx){ let i=0; const top=Math.round(it.y)-(u.race==='monster'?24:34); for(const k in u.fx){ if(u.fx[k].until<=G.step) continue; const c={burn:'#ff8a3a',poison:'#9ad06a',slow:'#7fc8ff',curse:'#a85ad0',fear:'#ffffff',charm:'#ff6fa8',blind:'#fff6a0',stun:'#ffd040'}[k]||'#ffffff'; g.fillStyle=c; const x=Math.round(it.x)-4+i*3; if(k==='fear'){ g.fillRect(x,top-3,1,2); g.fillRect(x,top,1,1); } else if(k==='charm'){ g.fillRect(x,top-1,1,1); g.fillRect(x+1,top,1,1); g.fillRect(x-1,top,1,1); } else g.fillRect(x,top-1+(fr%2),2,2); i++; } }
       if(u.sick>0&&fr<2){ g.fillStyle='#9ad06a'; g.fillRect(Math.round(it.x)+3,Math.round(it.y)-24,2,2); }
     }
   }
@@ -8001,6 +8120,9 @@ function unitExtra9(u){
   if(u.flags.ferries) h+=`<dt>Antar Hunter</dt><dd>${u.flags.ferries} kali mengantar grup Hunter${u.flags.ferry?' · sedang mengantar':''}</dd>`;
   if(u.flags.twBest||u.flags.twRuns) h+=`<dt>Menara Ujian</dt><dd>Rekor lantai ${u.flags.twBest||0} · ${u.flags.twRuns||0} kali latihan${u.task&&u.task.k==='tower'&&u.task.phase==='in'?` · <span class="link" data-tvu="${u.id}">Tonton latihannya</span>`:''}</dd>`;
   if(u.flags.blackSum) h+=`<dt>Black Summoner</dt><dd>${u.flags.sealed||0} monster disegel${u.flags.bsTrip?` · sedang berburu di ${esc(u.flags.bsTrip.name)}`:''}</dd>`;
+  if(martial(u)) h+=`<dt>Bela diri</dt><dd>${fistStyle(u)}${isFistW(u.weapon)?` · ${esc(u.weapon.name)}`:' · tangan kosong'}${BERKAT[u.b].s>=4?' · jurus Seribu Tinju':''}</dd>`; else if(u.flags.fistStyle) h+=`<dt>Bela diri</dt><dd>Dasar ${esc(u.flags.fistStyle)} dari gurunya</dd>`;
+  if(u.flags.mentor||u.flags.mentorPassed) h+=`<dt>Guru</dt><dd>${u.flags.mentor?personLink(u.flags.mentor):'(sudah tiada)'}${u.flags.trained?` · ${u.flags.trained} hari latihan`:''}${u.flags.graduated?' · lulus':''}</dd>`;
+  if(u.flags.disciples&&u.flags.disciples.length) h+=`<dt>Murid</dt><dd>${u.flags.disciples.map(id=>personLink(id)).join(', ')}</dd>`;
   if(u.flags.origin) h+=`<dt>Asal</dt><dd>${esc(u.flags.origin)} (datang dengan kapal)</dd>`;
   if(u.flags.allyWins) h+=`<dt>Perburuan aliansi</dt><dd>${u.flags.allyWins} kemenangan</dd>`;
   if(u.flags.haul) h+=`<dt>Tugas Tamer</dt><dd>${u.flags.haul.phase==='go'?'Menjemput':'Menyeret'} bangkai ${esc(MON[u.flags.haul.mk].n)} ke ${esc(BLD.lelang.n)}</dd>`;
