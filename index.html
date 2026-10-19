@@ -3044,7 +3044,7 @@ function villagesYearly(){
     if(!k.alive||k.hunter) continue; const cap=TN(k.capital); if(!cap) continue;
     for(const v of G.towns.filter(t=>t.kingdom===k.id&&t!==cap)){
       const ppl=G.units.filter(u=>!u.dead&&u.town===v.id&&isAdult(u)&&u.race!=='monster');
-      let gold=0; for(const u of ppl){ const g=Math.min(u.gold,u.gold*k.tax*.5+1); u.gold-=g; gold+=g; }
+      let gold=0; if(!(v.taxCut&&yearInt()-v.taxCut<=1)) for(const u of ppl){ const g=Math.min(u.gold,u.gold*k.tax*.5+1); u.gold-=g; gold+=g; }
       const food=Math.max(0,Math.floor((v.stock.food-ppl.length*15)*.2));
       v.stock.food-=food; cap.stock.food+=food; k.treasury+=gold;
       const c=ppl.find(u=>['dagang','kurir'].includes(roleOf(u)))||ppl.find(u=>stageOf(u)==='dewasa');
@@ -5102,7 +5102,7 @@ function worldUpgrade12(){
   if(G.pendingLegends) G.pendingLegends=G.pendingLegends.filter(k=>k!=='chaoticDragon');
 }
 function daily11(){ worldUpgrade11(); worldUpgrade12(); worldUpgrade13(); }
-function yearly11(){ chaosYearly(); hvVisitYearly(); advYearly(); yearly15(); yearly16(); yearly17(); }
+function yearly11(){ chaosYearly(); hvVisitYearly(); advYearly(); yearly15(); yearly16(); yearly17(); yearly18(); }
 /* ---------- kapal Hunter dari negeri lain ---------- */
 const HV_LANDS=['Negeri Kabut Utara','Kepulauan Taring','Benua Pasir Merah','Lembah Seribu Sarang','Kerajaan Es Varn','Tanah Rawa Selatan','Dunia Seberang Timur'];
 function hvVisitYearly(){
@@ -6058,6 +6058,92 @@ function colonyYearly(){
 }
 function yearly17(){ tribesYearly(); disasterYearly(); voyageYearly(); colonyYearly(); }
 function daily17(){ disasterDaily(); }
+
+/* =====================================================================
+   SIMULASI 18: kota sesak memecah diri, Kepala Desa / Walikota sebagai
+   penengah antara rakyat dan istana
+   ===================================================================== */
+function townHomes(t){ return G.blds.filter(b=>b.town===t.id&&(b.type==='rumah'||b.type==='istana')&&b.done).length; }
+function crowding(t){
+  const ppl=G.units.filter(u=>!u.dead&&u.town===t.id&&u.race!=='monster');
+  const homeless=ppl.filter(u=>{ const h=B(u.home); return !h||h.type==='tenda'; }).length;
+  return {n:ppl.length,homeless,full:!freeSlot(t),walled:t.wall&&t.wall.state==='done'};
+}
+/* tiap tahun: kota yang penuh (apalagi bertembok) melepas keluarga ke wilayah baru */
+function crowdYearly(){
+  for(const k of G.kingdoms){
+    if(!k.alive||k.hunter) continue;
+    const towns=G.towns.filter(t=>t.kingdom===k.id&&!t.hunter);
+    const nTowns=towns.length; if(nTowns>=8) continue;
+    for(const t of towns){
+      const c=crowding(t);
+      const press=(c.full?1:0)+(c.walled?1:0)+(c.homeless>=8?1:0)+(c.homeless>=16?1:0)+(c.n>(t.cap?90:50)?1:0);
+      t.crowd=press;
+      if(press<2||rnd()>.15+press*.1) continue;
+      if(G.towns.some(o=>o.kingdom===k.id&&o!==t&&yearInt()-o.founded<3)) continue;
+      const before=G.towns.length; foundVillage(t,k);
+      if(G.towns.length>before){ const v=G.towns[G.towns.length-1]; v.from=t.id;
+        // keluarga tanpa rumah ikut pindah lebih dulu
+        const movers=G.units.filter(u=>!u.dead&&u.town===t.id&&isAdult(u)&&!u.royal&&!u.flags.istana&&(!B(u.home)||B(u.home).type==='tenda')&&!u.party).slice(0,10);
+        for(const u of movers){ const fam=[u,U(u.spouse),...u.children.map(U).filter(ch=>ch&&!isAdult(ch))].filter(x=>x&&!x.dead&&x.town===t.id); for(const m of fam){ m.town=v.id; m.home=null; m.task=null; goTo(m,(v.cx+1)*TS+ri(-20,20),(v.cy+2)*TS+ri(-10,10)); } }
+        log(`${t.name} sudah terlalu sesak${c.walled?' di balik temboknya':''}. Sebagian warga memilih membuka wilayah baru, ${v.name}, sementara yang lain bertahan dan berdesakan di kota.`,'life',{x:(v.cx+1)*TS,y:(v.cy+1)*TS});
+        break; }
+    }
+  }
+}
+/* ---------- Kepala Desa / Walikota ---------- */
+function headTitle(t){ return t.cap?null:(t.pop||0)>=45?'Walikota':'Kepala Desa'; }
+function pickHead(t){
+  const ppl=G.units.filter(u=>!u.dead&&u.town===t.id&&isAdult(u)&&stageOf(u)!=='remaja'&&u.race!=='monster'&&!u.royal&&!u.flags.istana&&!u.party&&u.career!=='guild');
+  return ppl.sort((a,b)=>leaderScore(b)+(has(b,'Jujur')?6:0)+ageOf(b)*.15-(leaderScore(a)+(has(a,'Jujur')?6:0)+ageOf(a)*.15))[0]||null;
+}
+function headsYearly(){
+  for(const t of G.towns){
+    if(t.cap||t.hunter) continue; const k=K(t.kingdom); if(!k||!k.alive) continue;
+    let h=U(t.head);
+    const ttl=headTitle(t);
+    if(!h||h.dead||h.town!==t.id){
+      h=pickHead(t); if(!h) continue;
+      t.head=h.id; h.title=ttl; h.flags.head=t.id; hist(h,`dipilih warga sebagai ${ttl} ${t.name}`);
+      log(`Warga ${t.name} memilih ${h.name} ${h.marga} sebagai ${ttl}. Ia akan menjadi penyambung suara mereka ke istana ${k.name}.`,'life',{x:h.x,y:h.y});
+    } else if(h.title!==ttl&&ttl==='Walikota'){ h.title=ttl; if(!t.isKota){ t.isKota=1; log(`${t.name} tumbuh menjadi kota kecil. ${h.name} kini menjabat Walikota.`,'life',{x:(t.cx+1)*TS,y:(t.cy+1)*TS}); } }
+    headMediate(t,h,k);
+  }
+}
+/* penengah: pajak, keluhan, permintaan bantuan */
+function headMediate(t,h,k){
+  const kg=U(k.king); const cap=TN(k.capital); if(!cap) return;
+  t.headLog=t.headLog||[]; const note=s=>{ t.headLog.unshift(`Th ${yearInt()}: ${s}`); if(t.headLog.length>10) t.headLog.pop(); };
+  // korupsi pajak
+  const tr=t.lastTribute; if(tr&&tr.y===yearInt()&&tr.gold>4){
+    if(has(h,'Serakah')||has(h,'Licik')){ const cut=Math.round(tr.gold*.3); k.treasury-=Math.min(k.treasury,cut); h.gold+=cut; h.corrupt=(h.corrupt||0)+10; note(`${h.name} diam-diam menyunat ${cut} emas pajak.`);
+      if(h.corrupt>=30&&kg&&rnd()<.4){ log(`Istana ${k.name} membongkar korupsi ${h.title} ${h.name} di ${t.name}. Ia dicopot dari jabatannya.`,'war',{x:h.x,y:h.y}); h.title=null; h.flags.head=null; t.head=null; return; } }
+    else note(`${h.name} mengantar pajak ${tr.gold} emas ke ${cap.name} dengan jujur.`); }
+  // keluhan rakyat
+  if((t.welfare||60)<45){
+    const good=kg&&(has(kg,'Adil')||has(kg,'Bijak')||has(kg,'Ramah')), cruel=kg&&has(kg,'Kejam');
+    if(good){ t.taxCut=yearInt(); for(const u of G.units) if(!u.dead&&u.town===t.id) u.happy=Math.min(100,(u.happy||60)+8); note(`${h.name} menghadap raja membawa keluhan warga. Raja memberi keringanan pajak setahun.`);
+      if(rnd()<.5) log(`${h.title} ${h.name} menghadap ${fullName(kg)} membawa keluhan warga ${t.name}. Raja mengabulkan keringanan pajak.`,'life',{x:(cap.cx+1)*TS,y:(cap.cy+1)*TS}); }
+    else if(cruel&&rnd()<.35){ log(`${h.title} ${h.name} berani memprotes ${fullName(kg)} soal penderitaan warga ${t.name}. Ia dilempar ke penjara bawah tanah.`,'war',{x:(cap.cx+1)*TS,y:(cap.cy+1)*TS}); h.title=null; h.flags.head=null; t.head=null; for(const u of G.units) if(!u.dead&&u.town===t.id) u.happy=Math.max(0,(u.happy||60)-10); t.grudge=(t.grudge||0)+1;
+      if(t.grudge>=2&&G.kingdoms.filter(x=>x.alive).length<8&&rnd()<.5) villageRebel(t,k); return; }
+    else note(`${h.name} menyampaikan keluhan warga, tapi istana belum menanggapi.`);
+  }
+  // minta penjaga bila sering diserang
+  if(t.raided&&G.step-t.raided<YEAR){ const guards=G.units.filter(u=>!u.dead&&u.town===cap.id&&u.career==='penjaga'&&!u.party).sort((a,b)=>a.lvl-b.lvl);
+    if(guards.length>=4){ const g=guards.slice(0,ri(1,2)); for(const u of g){ u.town=t.id; u.home=null; goTo(u,(t.cx+1)*TS,(t.cy+2)*TS); hist(u,`dikirim menjaga ${t.name} atas permintaan ${h.name}`); } note(`${h.name} meminta perlindungan. Istana mengirim ${g.length} penjaga.`); } }
+}
+/* desa yang terus ditindas bisa memisahkan diri */
+function villageRebel(t,k){
+  const L=pickHead(t); if(!L) return;
+  const R=RACE[t.race]||RACE.manusia;
+  const nk={id:newId(),race:t.race,name:`${R.kpre} ${t.name}`,color:KCOLS[G.colorIdx++%KCOLS.length],capital:t.id,king:L.id,queen:null,consorts:[],treasury:60,tax:.1,welfare:60,founded:yearInt(),alive:true,heir:null,origin:k.id,founder:L.id};
+  G.kingdoms.push(nk); t.kingdom=nk.id; t.cap=true; t.head=null;
+  for(const u of G.units) if(!u.dead&&u.town===t.id){ u.kingdom=nk.id; }
+  L.royal=nk.id; L.title=L.sex==='m'?'Raja':'Ratu'; L.career='istana'; L.flags.head=null;
+  log(`${t.name} memberontak terhadap ${k.name} dan menyatakan merdeka sebagai ${nk.name}, dipimpin ${L.name}.`,'war',{x:(t.cx+1)*TS,y:(t.cy+1)*TS});
+  if(typeof dip==='function'){ const d=dip(nk,k); d.rel=-60; d.status='tegang'; }
+}
+function yearly18(){ crowdYearly(); headsYearly(); }
 
 /* ================= SPRITE PIKSEL ================= */
 
@@ -7810,7 +7896,7 @@ function renderDetail(b){
     const keepers=G.units.filter(u=>!u.dead&&u.town===t.id&&roleOf(u)==='ternak'&&canWork(u));
     b.innerHTML=`<div class="card"><h3>Kandang Ternak · ${esc(t.name)}</h3><dl class="kv"><dt>Sapi</dt><dd>${cnt('cow',false)} dewasa · ${cnt('cow',true)} anak</dd><dt>Domba</dt><dd>${cnt('sheep',false)} dewasa · ${cnt('sheep',true)} anak</dd><dt>Ayam</dt><dd>${cnt('chicken',false)} dewasa · ${cnt('chicken',true)} anak</dd><dt>Kapasitas</dt><dd>${t.herd.length}/${PEN_CAP}</dd><dt>Diurus</dt><dd>${ago===0?'hari ini':ago+' hari lalu'}${hungry?` · <span style="color:#f0a59d">${hungry} ekor kelaparan</span>`:''}</dd><dt>Peternak</dt><dd>${keepers.length?keepers.slice(0,6).map(u=>personLink(u.id)).join(', '):'<span style="color:#f0a59d">tidak ada, petani sesekali membantu</span>'}</dd>${t.slaughter?`<dt>Disembelih</dt><dd>${t.slaughter} ekor untuk daging</dd>`:''}</dl><p class="sub" style="margin:0">Ternak yang diurus memberi telur, susu, dan wol, serta beranak bila kandang belum penuh. Tanpa perawatan mereka kurus lalu mati.</p></div>`; return; }
   if(s.type==='town'){ const t=TN(s.id); if(!t){ b.innerHTML=''; return; } const k=K(t.kingdom); const [wl,wc]=welfareLabel(t.welfare);
-    b.innerHTML=`<div class="card"><h3><span class="dot" style="background:${k?k.color:'#888'}"></span>${esc(t.name)}</h3><dl class="kv"><dt>Kerajaan</dt><dd>${k?esc(k.name):'-'}</dd><dt>Penduduk</dt><dd>${t.pop||0}</dd><dt>Kesejahteraan</dt><dd style="color:${wc}">${wl}</dd><dt>Lumbung</dt><dd>pangan ${Math.round(t.stock.food)}, kayu ${Math.round(t.stock.wood)}, batu ${Math.round(t.stock.stone)}</dd></dl></div>`; return; }
+    b.innerHTML=`<div class="card"><h3><span class="dot" style="background:${k?k.color:'#888'}"></span>${esc(t.name)}</h3><dl class="kv"><dt>Kerajaan</dt><dd>${k?esc(k.name):'-'}</dd><dt>Penduduk</dt><dd>${t.pop||0}</dd><dt>Kesejahteraan</dt><dd style="color:${wc}">${wl}</dd><dt>Lumbung</dt><dd>pangan ${Math.round(t.stock.food)}, kayu ${Math.round(t.stock.wood)}, batu ${Math.round(t.stock.stone)}</dd>${townHeadHtml(t)}</dl></div>`; return; }
   if(s.type==='dun'){ const d=G.dungeons.find(x=>x.id===s.id); if(!d){ b.innerHTML=''; return; }
     b.innerHTML=`<div class="card"><h3>${esc(d.name)}</h3><dl class="kv"><dt>Kedalaman</dt><dd>${d.maxFloor} lantai (rahasia bagi warga)</dd><dt>Rekor terdalam</dt><dd>Lantai ${d.deep}</dd><dt>Penghuni dasar</dt><dd>${d.demon?'<span style="color:#ff9aa8">Raja Iblis</span>':'Belum ada Raja Iblis'}</dd><dt>Muncul</dt><dd>Tahun ${d.born}</dd></dl><div class="row"><button class="btn" data-dact="demon">${d.demon?'Usir Raja Iblis':'Tanam Raja Iblis'}</button>${d.demon?'<button class="btn warn" data-dact="wb">Lepas pasukan iblis</button>':''}</div><p class="sub" style="margin:0">Dungeon dengan Raja Iblis di dunia: ${G.demonCount}/5. Bila lima, anak berikutnya yang lahir akan membawa berkat Pahlawan.</p>${dunMapHtml(d)}</div>`+dungeonInsideHtml(d)+dungeonMgmtHtml(d); return; }
 }
@@ -8657,6 +8743,15 @@ function drawColony(){
   W.mons.slice(0,4).forEach((mk,i)=>{ const M=MON[mk]; if(!M) return; const b=blobs[(i+2)%blobs.length]; const t=now/2500+i*2; const X=ox+(b.x+Math.cos(t)*b.r*.6)*ts, Y=oy+(b.y+Math.sin(t)*b.r*.4)*ts; spr(monSprite({k:M.k,c:M.c,race:M.race,job:M.job,eye:M.eye,dir:'side'},frm),X,Y,sc*Math.min(1.4,M.sc||1),Math.cos(t)>0); });
   hud.innerHTML=`<div class="box"><b style="color:#9fd8ff">${esc(c.name)}</b> · ${esc(c.world)} · ${LEVELS[c.level]}<br><span class="sub">${ppl.length} jiwa · ${c.births} lahir · ${c.deaths} gugur · didirikan th ${c.founded}${U(c.leader)&&!U(c.leader).dead?` · pemimpin ${esc(U(c.leader).name)}`:''}</span><br><span class="sub">${esc(W.d)}</span></div>
   <div class="box"><ul class="log">${c.log.slice(0,3).map(l=>`<li>${esc(l)}</li>`).join('')}</ul></div>`;
+}
+
+function townHeadHtml(t){
+  let h=''; const c=crowding(t);
+  h+=`<dt>Kepadatan</dt><dd>${c.homeless} tanpa rumah tetap${c.full?' · lahan penuh':''}${c.walled?' · bertembok':''}${(t.crowd||0)>=2?' <span style="color:#f0b060">· sesak</span>':''}</dd>`;
+  if(!t.cap&&!t.hunter){ const hd=U(t.head); h+=`<dt>${headTitle(t)}</dt><dd>${hd&&!hd.dead?personLink(hd.id):'belum ada'}${t.taxCut===yearInt()?' · keringanan pajak tahun ini':''}</dd>`;
+    if(t.from&&TN(t.from)) h+=`<dt>Asal</dt><dd>Pecahan dari ${esc(TN(t.from).name)}</dd>`;
+    if(t.headLog&&t.headLog.length) h+=`<dt>Catatan</dt><dd><ul class="log" style="margin:0">${t.headLog.slice(0,4).map(l=>`<li>${esc(l)}</li>`).join('')}</ul></dd>`; }
+  return h;
 }
 
 </script>
