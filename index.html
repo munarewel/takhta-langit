@@ -628,6 +628,7 @@ function gainXp(u,x){
   if(u.race==='monster'||u.lvl>=50) return;
   if(has(u,'Cerdas')) x*=1.25; if(has(u,'Haus Ilmu')) x*=1.1;
   if(u.b===BIDX('Pahlawan')) x*=1.8;
+  if(u.isekai) x*=1.7;
   if(u.career==='petualang'||u.career==='hunter'||u.career==='penjaga') x*=1.6;
   x*=iqMult(u);
   u.xp+=x;
@@ -1108,6 +1109,8 @@ function chooseTask(u){
   if(u.flags.infil) return infilTask(u);
   if(u.flags.hvWait&&hvWaitTask(u)) return;
   if(u.flags.voyage&&voyageTask(u)) return;
+  if(u.flags.soulTrip){ soulStep(u); if(u.task) return; }
+  if(u.flags.council&&councilTask(u)) return;
   if(u.flags.tourney&&tourneyTask(u)) return;
   if(u.flags.battle&&battleTask(u)) return;
   if(u.flags.haul){ haulStep(u); if(u.task) return; }
@@ -1443,6 +1446,8 @@ function runTask(u){
     case 'read': readStep(u,k); break;
     case 'tower': towerStep(u,k); break;
     case 'spar': sparStep(u,k); break;
+    case 'council': if(--k.t<=0) u.task=null; break;
+    case 'soul': if(u.flags.soulTrip) soulStep(u); else u.task=null; break;
     case 'tourney': case 'battle': if(k.duel&&G.tourney&&G.tourney.cur){ u.path=[]; break; } if(--k.t<=0) u.task=null; break;
     case 'bsum': bsStep(u); break;
     case 'bsesc': bsEscortStep(u); break;
@@ -2360,6 +2365,7 @@ function step(){
   if(G.hv) hvTick();
   if(G.tourney||G.battle) tick16();
   if(G.sailing&&G.sailing.length) sailTick();
+  if(G.step%5===0) tick19();
   const sd=G.step%DAY;
   if(sd===Math.floor(DAY*.06)) nightRomance();
   if(sd===Math.floor(DAY*.54)||sd===Math.floor(DAY*.76)){
@@ -2687,7 +2693,7 @@ function placeGrave(t,pid,missing){
   if(idx<0){ const old=t.graves.slice().sort((a,b)=>a.y-b.y)[0]; t.graves=t.graves.filter(g=>g!==old); idx=old.slot; }
   const kind=p.title==='Raja'||p.title==='Ratu'?'raja':(p.b!=null&&BERKAT[p.b]&&BERKAT[p.b].uniq)||p.lvl>=30||/Pembantai|Pahlawan/.test(p.title||'')?'pahlawan':missing?'nisan':'batu';
   const g={pid,slot:idx,y:yearInt(),kind,missing:!!missing,name:p.name,marga:p.marga,bornY:Math.floor(p.bornStep/YEAR),cause:(G.grave[pid]&&G.grave[pid].cause)||''};
-  t.graves.push(g);
+  t.graves.push(g); t.newGraves=(t.newGraves||0)+1;
   return g;
 }
 function buryTick(){
@@ -3539,16 +3545,15 @@ function isekaiRitual(k,forced){
   const cap=TN(k.capital); if(!cap) return 'Kerajaan tanpa ibu kota.';
   const pal=G.blds.find(b=>b.town===cap.id&&b.type==='istana'&&b.done); if(!pal) return 'Istana belum berdiri.';
   const pool=G.units.filter(u=>!u.dead&&u.kingdom===k.id&&isAdult(u)&&!u.royal&&!u.flags.istana&&!u.possessed&&u.race!=='monster'&&!u.isekai&&!['guild','guru','istana'].includes(u.career)&&k.scout!==u.id).sort((a,b)=>((a.corrupt||0)>50||has(a,'Pengkhianat')?-2:0)+(a.kelas==='bawah'?-1:0)-(((b.corrupt||0)>50||has(b,'Pengkhianat')?-2:0)+(b.kelas==='bawah'?-1:0))||a.gold-b.gold);
-  if(pool.length<14) return 'Rakyat terlalu sedikit untuk dikorbankan.';
-  const vict=pool.slice(0,10);
-  for(const v of vict){ die(v,null,'dikorbankan dalam ritual pemanggilan terlarang di istana'); }
+  if((k.souls||0)<30) return `Jiwa dari kuburan belum cukup (${Math.floor(k.souls||0)}/30). Black Summoner harus mengumpulkannya dulu.`;
+  k.souls-=30;
   const kg=U(k.king);
   const r=rnd()*100; const star=r<35?1:r<65?2:r<85?3:r<96?4:5;
   const opts=BERKAT.map((b,i)=>[b,i]).filter(([b])=>!b.uniq&&b.s===star&&(star<3||COMBAT_ROLES.has(b.role)||rnd()<.3));
   const bi=(opts.length?pick(opts):pick(BERKAT.map((b,i)=>[b,i]).filter(([b])=>!b.uniq&&b.s===star)))[1];
-  const d=bldDoor(pal); const sex=rnd()<.5?'m':'f';
+  const room=summonRoom(cap)||pal; const d=bldDoor(room); const sex=rnd()<.5?'m':'f';
   const u=makeUnit({race:'manusia',sex,age:ri(18,21),b:bi,town:cap.id,kingdom:k.id,x:d.x,y:d.y+4,name:pick(ISE_F),marga:pick(ISE_L),gold:0});
-  u.isekai=true; u.revealed=true; u.iq=Math.max(u.iq,ri(122,160)); u.title='Orang Dunia Lain'; if(!has(u,'Cerdas')) u.traits.push('Cerdas'); u.motif=pick(['kebebasan','kejayaan','keluarga','ilmu']);
+  u.isekai=true; u.revealed=true; u.iq=Math.max(u.iq,ri(130,165)); u.title='Orang Dunia Lain'; if(!has(u,'Cerdas')) u.traits.push('Cerdas'); u.motif=pick(['kebebasan','kejayaan','keluarga','ilmu']);
   u.flags.summonedBy=k.id; u.flags.summonY=yearInt(); hist(u,`dipanggil paksa dari dunia lain ke istana ${cap.name}`);
   FX_QUEUE.push({k:'pillar',x:d.x,y:d.y,s:star,t:120});
   for(const p of G.units) if(!p.dead&&p.town===cap.id&&p.race!=='monster') p.happy-=8;
@@ -3566,7 +3571,8 @@ function isekaiRitual(k,forced){
       const p=newParty(cap,[u,...fit],u,`Pahlawan ${cap.name}`); p.trust[u.id]=80; }
     fate=`Berkatnya ${'★'.repeat(star)} ${b.n}! Istana memberinya zirah kerajaan dan senjata pusaka${fit.length?`, lalu memilihkan party: ${fit.map(v=>v.name).join(', ')}`:''}.`;
   }
-  log(`Ritual terlarang di istana ${cap.name}: sepuluh nyawa dikorbankan untuk memanggil seseorang dari dunia lain. ${u.name} ${u.marga} terbangun kebingungan. ${fate}`,star>=4?'hero':'war',{x:d.x,y:d.y});
+  log(`Ruang Pemanggilan ${cap.name}: tiga puluh jiwa dari kuburan dibakar dalam lingkaran sihir untuk memanggil seseorang dari dunia lain. ${u.name} ${u.marga} terbangun kebingungan. ${fate}`,star>=4?'hero':'war',{x:d.x,y:d.y});
+  demonFromSummon(k);
   return null;
 }
 function isekaiYearly(){
@@ -5102,7 +5108,7 @@ function worldUpgrade12(){
   if(G.pendingLegends) G.pendingLegends=G.pendingLegends.filter(k=>k!=='chaoticDragon');
 }
 function daily11(){ worldUpgrade11(); worldUpgrade12(); worldUpgrade13(); }
-function yearly11(){ chaosYearly(); hvVisitYearly(); advYearly(); yearly15(); yearly16(); yearly17(); yearly18(); }
+function yearly11(){ chaosYearly(); hvVisitYearly(); advYearly(); yearly15(); yearly16(); yearly17(); yearly18(); yearly19(); }
 /* ---------- kapal Hunter dari negeri lain ---------- */
 const HV_LANDS=['Negeri Kabut Utara','Kepulauan Taring','Benua Pasir Merah','Lembah Seribu Sarang','Kerajaan Es Varn','Tanah Rawa Selatan','Dunia Seberang Timur'];
 function hvVisitYearly(){
@@ -5509,7 +5515,7 @@ function blackSummonerDaily(t){
     const people=G.units.filter(u=>!u.dead&&u.town===t.id&&isAdult(u)&&!u.royal&&!u.party&&!u.flags.istana&&stageOf(u)!=='tua');
     bs=people.filter(u=>roleOf(u)==='penyihir'||tamerInfo(u)).sort((a,b)=>b.lvl-a.lvl)[0]||people.filter(u=>u.career==='kerja').sort((a,b)=>(b.iq||100)-(a.iq||100))[0];
     if(!bs) return; w.summoner=bs.id; bs.title='Black Summoner'; bs.career='kerja'; bs.jobOverride=null; bs.flags.blackSum=1; hist(bs,`diangkat menjadi Black Summoner Menara Ujian ${t.name}`);
-    log(`${fullName(bs)} diangkat menjadi Black Summoner. Tugasnya memburu monster di seluruh negeri lalu memanggilnya ke dalam Menara Ujian ${t.name}.`,'god',{x:bs.x,y:bs.y});
+    log(`${bs.name} ${bs.marga} diangkat menjadi Black Summoner. Tugasnya memburu monster di seluruh negeri lalu memanggilnya ke dalam Menara Ujian ${t.name}.`,'god',{x:bs.x,y:bs.y});
   }
   // beli telur S–SSS dari Hunter Village bila kerajaan kaya
   const k=K(t.kingdom); const ht=hvTown&&hvTown();
@@ -6144,6 +6150,149 @@ function villageRebel(t,k){
   if(typeof dip==='function'){ const d=dip(nk,k); d.rel=-60; d.status='tegang'; }
 }
 function yearly18(){ crowdYearly(); headsYearly(); }
+
+/* =====================================================================
+   SIMULASI 19: Balai Dewan (rapat & pemungutan suara),
+   pemanggilan dunia lain dengan jiwa dari kuburan
+   ===================================================================== */
+BLD.dewan={n:'Balai Dewan',w:7,h:5,work:1100,wood:35,stone:40};
+BLD.panggil={n:'Ruang Pemanggilan',w:5,h:5,work:900,wood:15,stone:45};
+/* ---------- Balai Dewan ---------- */
+function councilBld(t){ return townBuildings(t,'dewan').find(b=>b.done); }
+function councilYearly(){
+  for(const k of G.kingdoms){
+    if(!k.alive||k.hunter) continue; const t=TN(k.capital); if(!t) continue;
+    if(!townBuildings(t,'dewan').length&&yearInt()>=3&&rnd()<.4){ const s=freeSlot(t)||findSpot(t,7,5); if(s){ addBuilding(t,'dewan',s); } }
+    const b=councilBld(t); if(!b||k.council||yearInt()%2!==0) continue;
+    councilStart(k,t,b);
+  }
+}
+function councilMembers(k,t){
+  const ids=new Set(); const add=u=>{ if(u&&!u.dead&&!u.flags.abroad&&isAdult(u)) ids.add(u.id); };
+  add(U(k.king)); add(U(k.queen));
+  for(const v of G.towns.filter(x=>x.kingdom===k.id&&!x.cap)) add(U(v.head));
+  add(U(t.guildMaster)); add(U(tower(t).summoner)); add(U(k.scout));
+  G.units.filter(u=>!u.dead&&u.town===t.id&&u.kelas==='atas'&&isAdult(u)&&!u.royal).sort((a,b)=>b.gold-a.gold).slice(0,2).forEach(add);
+  return [...ids];
+}
+function councilAgenda(k,t){
+  const A=[]; const towns=G.towns.filter(x=>x.kingdom===k.id);
+  // upeti / pajak
+  if(k.treasury<150&&k.tax<.3) A.push({k:'pajak',d:+.04,text:`Menaikkan pajak menjadi ${Math.round((k.tax+.04)*100)}% untuk mengisi kas yang menipis`});
+  else if(k.treasury>600&&k.tax>.06) A.push({k:'pajak',d:-.04,text:`Menurunkan pajak menjadi ${Math.round((k.tax-.04)*100)}% karena kas berlimpah`});
+  // ancaman monster
+  const big=G.units.filter(m=>!m.dead&&m.race==='monster'&&!m.tamer&&(m.kills||0)>=1&&towns.some(x=>dist((x.cx+1)*TS,(x.cy+1)*TS,m.x,m.y)<70*TS)).sort((a,b)=>RANK_ORDER.indexOf(MON[b.mk].rank)-RANK_ORDER.indexOf(MON[a.mk].rank))[0];
+  const den=(G.dens||[]).find(d=>!d.peace&&denMembers(d).length&&towns.some(x=>dist(x.cx,x.cy,d.x,d.y)<90));
+  if(big) A.push({k:'monster',m:big.id,text:`Mengirim pasukan untuk membasmi ${MON[big.mk].n} yang sudah memakan ${big.kills} korban`});
+  else if(den) A.push({k:'den',den:den.id,text:`Membiayai pembasmian ${den.name}`});
+  // pembagian komoditas
+  const poor=towns.filter(x=>!x.cap&&x.stock.food<60).sort((a,b)=>a.stock.food-b.stock.food)[0];
+  if(poor&&t.stock.food>200) A.push({k:'pangan',to:poor.id,n:Math.round(t.stock.food*.15),text:`Membagi ${Math.round(t.stock.food*.15)} pangan dari ${t.name} ke ${poor.name} yang kekurangan`});
+  // perjodohan
+  const prince=G.units.find(u=>!u.dead&&u.royal===k.id&&['Pangeran','Putri'].includes(u.title)&&isAdult(u)&&!u.spouse&&stageOf(u)==='dewasa');
+  if(prince){ const mates=G.units.filter(u=>!u.dead&&u.kingdom===k.id&&!u.royal&&isAdult(u)&&!u.spouse&&u.sex!==prince.sex&&stageOf(u)==='dewasa'&&(u.kelas==='atas'||U(u.father)&&U(u.father).flags.head||u.lvl>=15)).sort((a,b)=>b.lvl+(b.kelas==='atas'?10:0)-(a.lvl+(a.kelas==='atas'?10:0)));
+    if(mates[0]) A.push({k:'jodoh',a:prince.id,b:mates[0].id,text:`Menjodohkan ${prince.title} ${prince.name} dengan ${mates[0].name} ${mates[0].marga}`}); }
+  // penjaga untuk desa yang sering diserang
+  const hit=towns.find(x=>!x.cap&&x.raided&&G.step-x.raided<YEAR*2);
+  if(hit) A.push({k:'jaga',to:hit.id,text:`Menempatkan penjaga tetap di ${hit.name} yang sering diserang`});
+  return A.slice(0,4);
+}
+function councilStart(k,t,b){
+  const att=councilMembers(k,t); const ag=councilAgenda(k,t);
+  if(att.length<3||!ag.length) return;
+  k.council={att,ag,i:0,state:'gather',start:G.step,b:b.id,res:[],y:yearInt()};
+  for(const id of att){ const u=U(id); if(u){ u.flags.council=k.id; u.task=null; u.path=[]; } }
+  log(`Rapat Dewan ${k.name} dibuka di Balai Dewan ${t.name}. ${att.length} orang penting dipanggil, termasuk para Kepala Desa dan Walikota.`,'life',{x:(b.x+3.5)*TS,y:(b.y+5)*TS});
+}
+function councilTask(u){
+  const k=K(u.flags.council); const C=k&&k.council; if(!C){ u.flags.council=null; return false; }
+  const b=B(C.b); if(!b){ u.flags.council=null; return false; }
+  const i=C.att.indexOf(u.id); const x=(b.x+b.w/2)*TS+(i%5-2)*7, y=(b.y+b.h)*TS+6+Math.floor(i/5)*6;
+  if(dist(u.x,u.y,x,y)>6) goTo(u,x,y); u.task={k:'council',t:50}; return true;
+}
+function voteOf(u,item,k){
+  const kg=U(k.king); const loyal=kg&&u!==kg?((u.rel[kg.id]?.f)||0)/100:0; let p=.5+loyal*.2;
+  const head=u.flags.head; const noble=u.kelas==='atas';
+  if(item.k==='pajak'){ p+=item.d>0?(-.25-(head?.25:0)+(noble?-.1:0)+(has(u,'Serakah')&&u===kg?.4:0)):(.3+(has(u,'Serakah')?-.4:0)); }
+  if(item.k==='monster'||item.k==='den'){ p+=.25+(has(u,'Pemberani')?.15:0)-(has(u,'Penakut')?.2:0)-(has(u,'Serakah')?.1:0); }
+  if(item.k==='pangan'){ p+=(head&&head===item.to?.5:0)+(has(u,'Adil')||has(u,'Ramah')?.2:0)-(has(u,'Serakah')?.25:0); }
+  if(item.k==='jodoh'){ const a=U(item.a), b=U(item.b); p+=(u===a||u===b?(((a.rel[b.id]?.r)||0)>20?.4:-.2):0)+(u.id===b.father||u.id===b.mother?.4:0)+.05; }
+  if(item.k==='jaga'){ p+=(head&&head===item.to?.5:.05)+(u.flags.istana?-.1:0); }
+  if(has(u,'Pemarah')) p-=.05; if(has(u,'Bijak')) p+=.05;
+  return rnd()<clamp(p,.05,.95);
+}
+function councilApply(k,t,item){
+  if(item.k==='pajak'){ k.tax=clamp(k.tax+item.d,.02,.4); }
+  else if(item.k==='monster'){ const m=U(item.m); if(m&&!m.dead){ if(bigMon(m)&&!(G.alliances||[]).some(a=>a.target===m.id&&a.state!=='done')){ const ks=[k,...G.kingdoms.filter(o=>o!==k&&o.alive&&!o.hunter&&dip(k,o).status!=='perang')].slice(0,4); formAlliance(m,ks); }
+      else { const n=G.nests.find(n=>n.id===m.nest)||G.nests.slice().sort((a,b)=>dist(a.x*TS,a.y*TS,m.x,m.y)-dist(b.x*TS,b.y*TS,m.x,m.y))[0]; if(n){ t.quests=t.quests||[]; const rw=Math.round(60+RANK_ORDER.indexOf(MON[m.mk].rank)*30); k.treasury=Math.max(0,k.treasury-rw*.5); t.quests.push({id:newId(),type:'buru',nest:n.id,n:3,reward:rw,text:`[Titah Dewan] Basmi ${MON[m.mk].n} di sekitar ${n.name}`,posted:yearInt(),taker:null}); } } } }
+  else if(item.k==='den'){ const d=(G.dens||[]).find(x=>x.id===item.den); if(d){ t.quests=t.quests||[]; if(!t.quests.some(q=>!q.done&&q.type==='den'&&q.den===d.id)) t.quests.push({id:newId(),type:'den',den:d.id,reward:Math.round(150+denMembers(d).length*12),text:`[Titah Dewan] Basmi ${d.name}`,posted:yearInt(),taker:null}); k.treasury=Math.max(0,k.treasury-60); } }
+  else if(item.k==='pangan'){ const v=TN(item.to); if(v){ t.stock.food-=item.n; v.stock.food+=item.n; for(const u of G.units) if(!u.dead&&u.town===v.id) u.happy=Math.min(100,(u.happy||60)+6); } }
+  else if(item.k==='jodoh'){ const a=U(item.a), b=U(item.b); if(a&&b&&!a.dead&&!b.dead&&!a.spouse&&!b.spouse){ marry(a,b,true); b.royal=a.royal; b.title=a.sex==='m'?'Putri':'Pangeran'; b.home=a.home; b.town=a.town; hist(b,`dijodohkan dengan ${a.name} lewat keputusan Dewan`); const fam=[U(b.father),U(b.mother)].filter(Boolean); for(const f of fam){ const kg=U(k.king); if(kg){ const r=relOf(f,kg.id); r.f=Math.min(100,r.f+20); } } } }
+  else if(item.k==='jaga'){ const v=TN(item.to); const g=G.units.filter(u=>!u.dead&&u.town===t.id&&u.career==='penjaga'&&!u.party).sort((a,b)=>a.lvl-b.lvl).slice(0,2); for(const u of g){ u.town=v.id; u.home=null; goTo(u,(v.cx+1)*TS,(v.cy+2)*TS); hist(u,`ditempatkan di ${v.name} atas keputusan Dewan`); } }
+}
+function councilTick(){
+  for(const k of G.kingdoms){
+    const C=k.council; if(!C) continue; const t=TN(k.capital); const b=B(C.b); if(!t||!b){ councilEnd(k); continue; }
+    const att=C.att.map(U).filter(u=>u&&!u.dead);
+    if(C.state==='gather'){ const here=att.filter(u=>dist(u.x,u.y,(b.x+b.w/2)*TS,(b.y+b.h)*TS+8)<50).length; if(here>=att.length*.7||G.step-C.start>DAY*.8){ C.state='vote'; C.next=G.step+30; } continue; }
+    if(G.step<C.next) continue;
+    const item=C.ag[C.i]; if(!item){ councilEnd(k); continue; }
+    const here=att.filter(u=>dist(u.x,u.y,(b.x+b.w/2)*TS,(b.y+b.h)*TS+8)<70); const voters=here.length?here:att;
+    const kg=U(k.king); let yes=0,no=0; const votes={};
+    for(const u of voters){ const v=voteOf(u,item,k); const w=u===kg?2:1; if(v) yes+=w; else no+=w; votes[u.id]=v; FX_QUEUE.push({k:'say',x:u.x,y:u.y-24,t:50,s:v?'Setuju':'Tolak'}); }
+    const pass=yes>no;
+    if(pass) councilApply(k,t,item);
+    for(const u of voters){ if(!kg||u===kg) continue; const r=relOf(u,kg.id); r.f=clamp(r.f+(votes[u.id]===pass?4:-2)+2,-100,100); }
+    C.res.push({text:item.text,yes,no,pass});
+    C.i++; C.next=G.step+60;
+  }
+}
+function councilEnd(k){
+  const C=k.council; if(!C) return; k.council=null;
+  for(const id of C.att){ const u=U(id); if(u){ u.flags.council=null; if(u.task&&u.task.k==='council') u.task=null; } }
+  if(C.res.length){ k.councilLog=k.councilLog||[]; k.councilLog.unshift({y:C.y,res:C.res,n:C.att.length}); if(k.councilLog.length>6) k.councilLog.pop();
+    log(`Rapat Dewan ${k.name} selesai. ${C.res.map(r=>`${r.text}: ${r.pass?'DITERIMA':'DITOLAK'} (${r.yes}–${r.no})`).join(' · ')}.`,'life',null); }
+}
+/* ---------- jiwa dari kuburan & pemanggilan dunia lain ---------- */
+function ensureSummoner(t){
+  const w=tower(t); let bs=U(w.summoner);
+  if(bs&&!bs.dead&&bs.town===t.id) return bs;
+  const ppl=G.units.filter(u=>!u.dead&&u.town===t.id&&isAdult(u)&&!u.royal&&!u.party&&!u.flags.istana&&stageOf(u)!=='tua');
+  bs=ppl.filter(u=>roleOf(u)==='penyihir'||tamerInfo(u)).sort((a,b)=>b.lvl-a.lvl)[0]||ppl.sort((a,b)=>(b.iq||100)-(a.iq||100))[0];
+  if(!bs) return null; w.summoner=bs.id; bs.title='Black Summoner'; bs.flags.blackSum=1; hist(bs,`diangkat menjadi Black Summoner ${t.name}`); return bs;
+}
+function soulYearly(){
+  for(const k of G.kingdoms){
+    if(!k.alive||k.hunter) continue; const t=TN(k.capital); if(!t) continue;
+    const towns=G.towns.filter(x=>x.kingdom===k.id); const fresh=towns.reduce((s,x)=>s+(x.newGraves||0),0);
+    k.souls=k.souls||0;
+    if(fresh>=30){ const bs=ensureSummoner(t); if(!bs) continue; const cem=towns.filter(x=>x.cemetery&&(x.newGraves||0)>0).sort((a,b)=>(b.newGraves||0)-(a.newGraves||0))[0]||t;
+      bs.flags.soulTrip={town:cem.id,n:fresh,phase:'go',until:G.step+DAY*3}; bs.task=null; bs.path=[]; for(const x of towns) x.newGraves=0; }
+    if(k.souls>=30&&!(k.lastSummon!=null&&yearInt()-k.lastSummon<6)) summonRequest(k,t);
+  }
+}
+function soulStep(u){
+  const tr=u.flags.soulTrip; const t=TN(tr.town); if(!t||G.step>tr.until){ u.flags.soulTrip=null; u.task=null; return; }
+  u.task={k:'soul'}; const c=t.cemetery?{x:(t.cemetery.x+t.cemetery.w/2)*TS,y:(t.cemetery.y+t.cemetery.h/2)*TS}:{x:(t.cx+1)*TS,y:(t.cy+2)*TS};
+  if(tr.phase==='go'){ if(dist(u.x,u.y,c.x,c.y)<14){ tr.phase='do'; tr.doUntil=G.step+90; } else if(!u.path.length||G.step%40===0) goTo(u,c.x,c.y); return; }
+  if(tr.phase==='do'){ u.path=[]; if(G.step%12===0) FX_QUEUE.push({k:'nova',x:u.x+ri(-20,20),y:u.y+ri(-14,6),r:8,c:'#9a6aff',t:26,ring:1}); if(G.step%30===0) FX_QUEUE.push({k:'say',x:u.x,y:u.y-26,t:30,s:'Jiwa-jiwa, ikutlah…'});
+    if(G.step>=tr.doUntil){ const k=K(u.kingdom); if(k){ k.souls=(k.souls||0)+tr.n; } hist(u,`mengumpulkan ${tr.n} jiwa dari kuburan ${t.name}`); log(`Malam itu ${u.name}, Black Summoner, berdiri di kuburan ${t.name}. Cahaya ungu naik dari ${tr.n} makam dan masuk ke dalam lenteranya.`,'war',{x:u.x,y:u.y}); u.flags.soulTrip=null; u.task=null; } }
+}
+function summonRequest(k,t){
+  const kg=U(k.king); const bs=ensureSummoner(t); if(!kg||!bs) return;
+  const threat=G.demonCount>=1||(G.warbands||[]).some(w=>TN(w.town)?.kingdom===k.id);
+  let p=.35+(has(kg,'Ambisius')?.25:0)+(has(kg,'Kejam')?.2:0)+(has(kg,'Serakah')?.1:0)+(threat?.2:0)-(has(kg,'Religius')?.3:0)-(has(kg,'Adil')?.15:0)-(has(kg,'Bijak')?.1:0);
+  if(rnd()<p){ log(`${bs.name} menghadap ${fullName(kg)}: "Lentera hamba sudah penuh jiwa. Izinkan hamba membuka Ruang Pemanggilan." ${kg.title||'Raja'} mengangguk.`,'war',{x:(t.cx+1)*TS,y:(t.cy+1)*TS}); isekaiRitual(k,false); }
+  else { k.lastSummon=yearInt()-3; log(`${bs.name} memohon izin melakukan pemanggilan dunia lain, tapi ${fullName(kg)} menolak. "Aku tak mau mengundang bencana."`,'life',{x:(t.cx+1)*TS,y:(t.cy+1)*TS}); }
+}
+function summonRoom(t){ let b=townBuildings(t,'panggil')[0]; if(!b){ const s=freeSlot(t)||findSpot(t,5,5); if(s){ b=addBuilding(t,'panggil',s); b.done=true; b.progress=b.work; t.queue=t.queue.filter(i=>i!==b.id); } } return b; }
+function demonFromSummon(k){
+  const d=G.dungeons.filter(x=>!x.demon&&x.maxFloor>=5).sort(()=>rnd()-.5)[0];
+  if(d){ d.demon=true; G.demonCount=G.dungeons.filter(x=>x.demon).length; log(`Ritual itu merobek tirai antardunia. Di dasar ${d.name}, sesuatu ikut terbangun: seorang Raja Iblis baru lahir dari celah yang terbuka.`,'war',{x:d.x*TS,y:d.y*TS}); }
+}
+function isekaiYearly(){}
+function yearly19(){ councilYearly(); soulYearly(); }
+function tick19(){ councilTick(); }
 
 /* ================= SPRITE PIKSEL ================= */
 
@@ -7098,6 +7247,20 @@ function bldSprite(b){
     R(x+9,y-2,12,5,'#6a5a4a'); R(x+10,y-1,10,3,'#7ab8e0'); R(x+11,y-1,4,1,'#c8e8ff');
     for(let i=0;i<3;i++){ R(x+11+i*3,y-6-i,1,3,'#e8eef6'); R(x+12+i*3,y-9-i,1,2,'#e8eef6'); }
     R(x-14,y-9,4,3,'#3a4a6a'); wins.push([x-14,y-9,4,3]);
+  } else if(b.type==='dewan'){
+    const x=W/2, y=base-2;
+    R(x-26,y-18,52,20,stone); for(let yy=y-18;yy<y+2;yy+=4) R(x-26,yy,52,1,shade(stone,-.15));
+    for(const cx of [-22,-12,8,18]){ R(x+cx,y-18,4,20,'#e8e2d4'); R(x+cx+3,y-18,1,20,'#b8b2a4'); }
+    for(let i=0;i<8;i++) R(x-28+i*3.5,y-19-i*1.6,56-i*7,2,i%2?'#8a3a2a':'#a84a3a'); R(x-2,y-34,4,4,col);
+    R(x-5,y-11,10,13,'#4a3020'); R(x-5,y-11,10,1,'#c8a050');
+    R(x-1,y-44,1,10,'#5a4a3a'); R(x,y-44,7,4,col);
+  } else if(b.type==='panggil'){
+    const x=W/2, y=base-2;
+    R(x-18,y-22,36,24,'#3a3046'); for(let yy=y-22;yy<y+2;yy+=4) R(x-18,yy,36,1,'#2a2236');
+    for(let i=0;i<6;i++) R(x-20+i*2,y-23-i*2,40-i*4,2,i%2?'#2a1a3a':'#3a2a4a');
+    R(x-6,y-12,12,14,'#120a1a'); R(x-6,y-13,12,1,'#9a4ad0');
+    R(x-3,y-8,6,6,'#c87aff'); R(x-2,y-7,4,4,'#f0d0ff');
+    R(x-1,y-40,2,6,'#c87aff'); R(x-14,y-18,3,3,'#9a4ad0'); R(x+11,y-18,3,3,'#9a4ad0'); wins.push([x-14,y-18,3,3],[x+11,y-18,3,3]);
   } else if(b.type==='arena'){
     const x=W/2, y=base-4;
     for(let i=0;i<5;i++) R(x-30+i,y-22+i*2,60-i*2,2,i%2?'#b8a888':'#a89878');
@@ -7785,7 +7948,7 @@ function kingdomHtml(){
       return `<h4>Perdagangan</h4><p class="sub" style="margin:0">${st?'Tahun ini':'Tahun lalu'}: ${show.trips} perjalanan kafilah, nilai ${Math.round(show.value)} emas${parts?` · mitra: ${parts}`:''}.</p>`; })()}
     ${(()=>{ const ppl2=ppl.filter(isAdult); const c={atas:0,menengah:0,bawah:0}; for(const u of ppl2) c[u.kelas||'bawah']++; const sc=U(k.scout);
       return `<h4>Masyarakat</h4><p class="sub" style="margin:0">Kalangan atas ${c.atas} · menengah ${c.menengah} · bawah ${c.bawah}${k.zoning?' · <span style="color:#f0a59d">wilayah dibagi per kelas (pajak bawah lebih berat)</span>':''}${sc?`<br>Pencari Bakat: <span class="link" data-uid="${sc.id}">${esc(sc.name)}</span> (IQ ${sc.iq})`:''}</p>`; })()}
-    ${hvHtml(k)}${k.hunter?'':isekaiHtml(k)}${foodHtml(k)}${potShopHtml(k)}${dipHtml(k)}${colonyHtml(k)}
+    ${hvHtml(k)}${k.hunter?'':isekaiHtml(k)}${foodHtml(k)}${potShopHtml(k)}${dipHtml(k)}${colonyHtml(k)}${councilHtml(k)}
     <h4>Pemukiman</h4>
     ${towns.map(t=>{ const bl=G.blds.filter(b=>b.town===t.id&&b.type!=='tenda'); const done=bl.filter(b=>b.done).length; const site=bl.find(b=>!b.done);
       return `<div class="sub"><span class="link" data-goto="${(t.cx+1)*TS},${(t.cy+1)*TS}">${esc(t.name)}</span> ${t.cap?'(ibu kota)':'(desa)'} · ${t.pop||0} jiwa · ${done}/${bl.length} bangunan · tembok ${t.wall.state==='done'?'berdiri':t.wall.state==='building'?Math.round(t.wall.progress/BLD.tembok.work*100)+'%':'belum'}${site?` · sedang membangun ${BLD[site.type].n} ${Math.round(site.progress/site.work*100)}%`:''}<br>Lumbung: pangan ${Math.round(t.stock.food)} · kayu ${Math.round(t.stock.wood)} · batu ${Math.round(t.stock.stone)} · bijih ${Math.round(t.stock.ore)} · barang ${Math.round(t.stock.goods)}
@@ -7885,7 +8048,7 @@ function renderDetail(b){
     b.innerHTML=`<div class="card"><h3>${esc(d.name)}</h3><dl class="kv"><dt>Pemimpin</dt><dd>${ch&&!ch.dead?esc(ch.name):'tidak ada'}</dd><dt>Penghuni</dt><dd>${mem.length} · ${Object.entries(cnt).map(([k,n])=>`${n} ${MON[k].n}`).join(', ')}</dd><dt>Tawanan</dt><dd>${d.captives.length?d.captives.map(personLink).join(', '):'tidak ada'}</dd><dt>Muncul</dt><dd>Tahun ${d.born}</dd></dl><p class="sub" style="margin:0">Goblin berburu berkelompok, menyerbu desa tak bertembok, membakar rumah, dan menculik perempuan. Sarang membengkak dan memecah diri bila dibiarkan. Guild memasang quest untuk membasminya.</p><div class="row"><button class="btn warn" data-denx="1">Hancurkan dengan petir</button></div></div>`; return; }
   if(s.type==='grave'){ const t=TN(s.id); const gr=t&&(t.graves||[]).find(g=>g.pid===s.pid); const p=person(s.pid); if(!gr||!p){ b.innerHTML=''; return; }
     b.innerHTML=`<div class="card"><h3>${gr.kind==='nisan'?'Nisan kosong':'Makam'} · ${esc(gr.name)} ${esc(gr.marga||'')}</h3><p class="sub" style="margin:0;font-style:italic">${gr.missing?'Jasadnya tak pernah kembali.':'Beristirahat dengan tenang.'}</p><dl class="kv"><dt>Hidup</dt><dd>Tahun ${gr.bornY} – ${G.grave[s.pid]?.diedY??gr.y}</dd><dt>Sebab</dt><dd>${esc(G.grave[s.pid]?.cause||gr.cause||'-')}</dd><dt>Pemakaman</dt><dd>${esc(t.name)}</dd></dl><div class="row"><button class="btn" data-uid="${s.pid}">Lihat riwayat hidupnya</button></div></div>`; return; }
-  if(s.type==='bld'){ const bd=B(s.id); if(!bd){ b.innerHTML=''; return; } if(bd.type==='perpus'||bd.type==='patung'){ b.innerHTML=libraryPanel(bd); return; } if(bd.type==='menara'){ b.innerHTML=towerPanel(bd); return; } if(bd.type==='arena'){ b.innerHTML=arenaPanel(bd); return; } const t=TN(bd.town); const res=G.units.filter(u=>!u.dead&&u.home===bd.id);
+  if(s.type==='bld'){ const bd=B(s.id); if(!bd){ b.innerHTML=''; return; } if(bd.type==='perpus'||bd.type==='patung'){ b.innerHTML=libraryPanel(bd); return; } if(bd.type==='menara'){ b.innerHTML=towerPanel(bd); return; } if(bd.type==='arena'){ b.innerHTML=arenaPanel(bd); return; } if(bd.type==='dewan'||bd.type==='panggil'){ b.innerHTML=councilPanel(bd); return; } const t=TN(bd.town); const res=G.units.filter(u=>!u.dead&&u.home===bd.id);
     b.innerHTML=`<div class="card"><h3>${BLD[bd.type].n}${bd.type==='rumah'&&U(bd.owner)?` keluarga ${esc(U(bd.owner).marga)}`:''}</h3><dl class="kv"><dt>Kota</dt><dd>${t?esc(t.name):'-'}</dd><dt>Status</dt><dd>${bd.done?'Berdiri':`Dibangun ${Math.round(bd.progress/bd.work*100)}%${bd.paid?'':' (menunggu bahan)'}`}</dd>${bd.owner?`<dt>Pemilik</dt><dd>${personLink(bd.owner)}</dd>`:''}<dt>Penghuni</dt><dd>${res.length?res.map(r=>personLink(r.id)).join(', '):'-'}</dd>${bd.type==='klinik'?`<dt>Pasien</dt><dd>${G.units.filter(u=>!u.dead&&u.patient&&u.patient.b===bd.id).map(u=>personLink(u.id)).join(', ')||'tidak ada'}</dd><dt>Tabib jaga</dt><dd>${G.step-(bd.nurse||-999)<60?'ada':'tidak ada'}</dd>`:''}</dl></div>`; return; }
   if(s.type==='plot'){ const t=TN(s.id); const f=t&&t.fields[s.i]; if(!f){ b.innerHTML=''; return; }
     const st={kosong:'Kosong, siap ditanami',bibit:'Baru ditanam',tumbuh:'Sedang tumbuh',matang:'Siap panen',layu:'Layu, perlu dibersihkan'}[f.st||'kosong'];
@@ -8259,7 +8422,7 @@ function lordWhisper(d,act){
 function isekaiHtml(k){
   const ow=G.units.filter(u=>!u.dead&&u.isekai&&(u.kingdom===k.id||u.flags.summonedBy===k.id));
   return `<h4>Orang Dunia Lain</h4><p class="sub" style="margin:0">${ow.length?ow.map(u=>`${personLink(u.id)} <small>(${stars(BERKAT[u.b].s)} ${esc(BERKAT[u.b].n)}${u.flags.buangan?', diusir dari istana':''})</small>`).join(', '):'Belum ada.'}${k.lastSummon!=null?` · ritual terakhir th ${k.lastSummon}`:''}</p>
-  <div class="row"><button class="btn warn" data-ise="${k.id}">${UI.iseArm===k.id?'Yakin? Sepuluh nyawa akan dikorbankan':'Perintahkan ritual pemanggilan terlarang'}</button></div>`;
+  <div class="row"><button class="btn warn" data-ise="${k.id}">${UI.iseArm===k.id?'Yakin? 30 jiwa dari kuburan dipakai & Raja Iblis baru akan lahir':'Perintahkan ritual pemanggilan terlarang'}</button></div>`;
 }
 
 /* ---------- detail warga tambahan ---------- */
@@ -8752,6 +8915,22 @@ function townHeadHtml(t){
     if(t.from&&TN(t.from)) h+=`<dt>Asal</dt><dd>Pecahan dari ${esc(TN(t.from).name)}</dd>`;
     if(t.headLog&&t.headLog.length) h+=`<dt>Catatan</dt><dd><ul class="log" style="margin:0">${t.headLog.slice(0,4).map(l=>`<li>${esc(l)}</li>`).join('')}</ul></dd>`; }
   return h;
+}
+
+function councilHtml(k){
+  if(k.hunter) return ''; let h='';
+  if(k.souls||k.lastSummon!=null) h+=`<p class="sub" style="margin:4px 0">Jiwa terkumpul untuk pemanggilan: ${Math.floor(k.souls||0)}/30${k.lastSummon!=null?` · pemanggilan terakhir th ${k.lastSummon}`:''}</p>`;
+  const L=k.councilLog&&k.councilLog[0]; if(k.council) h+=`<p class="sub" style="margin:4px 0">Rapat Dewan sedang berlangsung (${k.council.att.length} peserta).</p>`;
+  if(L) h+=`<h4>Rapat Dewan terakhir (Th ${L.y})</h4>${L.res.map(r=>`<div class="sub">${esc(r.text)}: <b style="color:${r.pass?'#7fd08a':'#ff8a7a'}">${r.pass?'diterima':'ditolak'}</b> (${r.yes}–${r.no})</div>`).join('')}`;
+  return h;
+}
+function councilPanel(bd){
+  const t=TN(bd.town); const k=t&&K(t.kingdom);
+  if(bd.type==='panggil') return `<div class="card"><h3>Ruang Pemanggilan ${t?esc(t.name):''}</h3><p class="sub">Lingkaran sihir untuk memanggil orang dari dunia lain. Butuh 30 jiwa dari kuburan, dikumpulkan Black Summoner. Setiap pemanggilan membuka celah yang melahirkan Raja Iblis baru.</p><p>Jiwa terkumpul: <b>${Math.floor(k&&k.souls||0)}/30</b></p>${U(tower(t).summoner)?`<p class="sub">Black Summoner: ${personLink(tower(t).summoner)}</p>`:''}</div>`;
+  const C=k&&k.council; const L=k&&k.councilLog||[];
+  return `<div class="card"><h3>Balai Dewan ${t?esc(t.name):''}</h3><p class="sub" style="margin:0">Tiap 2 tahun raja, ratu, para Kepala Desa dan Walikota, Ketua Guild, Black Summoner, dan bangsawan berkumpul untuk memutuskan urusan kerajaan lewat pemungutan suara. Suara raja dihitung dua.</p>
+  ${C?`<h4>Rapat berlangsung</h4><p class="sub">Peserta: ${C.att.map(id=>personLink(id)).join(', ')}</p>${C.ag.map((a,i)=>`<div class="sub">${i<C.i?'✓':i===C.i&&C.state==='vote'?'▶':'·'} ${esc(a.text)}${C.res[i]?` — <b style="color:${C.res[i].pass?'#7fd08a':'#ff8a7a'}">${C.res[i].pass?'diterima':'ditolak'} ${C.res[i].yes}–${C.res[i].no}</b>`:''}</div>`).join('')}`:''}
+  ${L.map(x=>`<h4>Rapat Th ${x.y} (${x.n} peserta)</h4>${x.res.map(r=>`<div class="sub">${esc(r.text)}: <b style="color:${r.pass?'#7fd08a':'#ff8a7a'}">${r.pass?'diterima':'ditolak'}</b> (${r.yes}–${r.no})</div>`).join('')}`).join('')}</div>`;
 }
 
 </script>
