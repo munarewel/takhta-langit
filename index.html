@@ -1002,7 +1002,7 @@ function die(u,killer,cause){
   if(killer&&killer.tamer){ const o=U(killer.tamer); if(o) killer=o; }
   if(killer&&killer.race==='monster') witnessTrigger(u,killer);
   inheritWeapon(u);
-  if(killer&&killer.race==='monster'){ killer.kills++; }
+  if(killer&&killer.race==='monster'){ killer.kills++; wildEvo(killer); }
   const why=cause||(killer?(killer.race==='monster'?`tewas diserang ${killer.name}`:`tewas di tangan ${shortName(killer)}`):'meninggal');
   G.grave[u.id]={id:u.id,name:u.name,marga:u.marga,race:u.race,sex:u.sex,bornStep:u.bornStep,diedY:yearInt(),cause:why,mother:u.mother,father:u.father,spouse:u.spouse,children:u.children.slice(),b:u.b,traits:u.traits.slice(),title:u.title,lvl:u.lvl,app:u.app,dead:true,widowOf:u.widowOf,hist:u.hist.slice(0,8)};
   const sp=U(u.spouse);
@@ -2796,7 +2796,7 @@ function releasePet(m,o){
   const n=G.nests.slice().sort((a,b)=>dist(a.x*TS,a.y*TS,m.x,m.y)-dist(b.x*TS,b.y*TS,m.x,m.y))[0]; m.nest=n?n.id:null;
   if(o) log(`${m.petName}, ${MON[m.mk].n} jinak milik ${o.name}, kehilangan tuannya dan kembali ke alam liar.`,'war',{x:m.x,y:m.y});
 }
-function petGrow(m){ m.kills=(m.kills||0)+1; if(m.kills%3===0){ m.maxHp=Math.round(m.maxHp*1.08); m.atk*=1.06; m.hp=m.maxHp; m.lvl++; FX_QUEUE.push({k:'lvl',x:m.x,y:m.y,t:30}); } }
+function petGrow(m){ m.kills=(m.kills||0)+1; evoGain(m,1); if(m.kills%3===0){ m.maxHp=Math.round(m.maxHp*1.08); m.atk*=1.06; m.hp=m.maxHp; m.lvl++; FX_QUEUE.push({k:'lvl',x:m.x,y:m.y,t:30}); } }
 
 /* ---------- pasukan Raja Iblis ---------- */
 function spawnWarband(d,forced){
@@ -5442,7 +5442,7 @@ function mercRelease(p){
   for(const id of p.members.slice()){ const m=U(id); if(m&&m.flags.hiredBy===p.id){ m.flags.hiredBy=null; m.flags.mercJobs=(m.flags.mercJobs||0)+1; partyLeave(p,m,'kontrak sewaan selesai'); } }
 }
 /* ---------- telur: semua monster yang bisa dijinakkan ---------- */
-function tameable(k){ const m=MON[k]; return m&&m.beast&&!m.legend&&!m.demon&&!m.sea&&k!=='neko'&&RANK_ORDER.indexOf(m.rank)<=5; }
+function tameable(k){ const m=MON[k]; return m&&m.beast&&!m.evolved&&!m.legend&&!m.demon&&!m.sea&&k!=='neko'&&RANK_ORDER.indexOf(m.rank)<=5; }
 function eggBuyDaily(t){
   for(const u of G.units){ if(u.dead||u.town!==t.id||!u.flags.needEgg||u.flags.egg||u.hq) continue;
     if(rnd()>.04) continue;
@@ -6310,7 +6310,6 @@ function tick19(){ councilTick(); }
      ★3 dibentukkan party atau jadi tangan kanan raja
    ===================================================================== */
 const NAMED_N=['Kaze','Tetsu','Hana','Kurogane','Shirayuki','Akane','Gin','Ranmaru','Yukimi','Hayate','Kotetsu','Momiji','Raiden','Kogane','Nagi','Hotaru','Mizuha','Torao','Botan','Kaede','Ibuki','Hikari','Rinka','Gobuzo','Gobumi','Gorou','Suzune','Tamaki','Kagerou','Sazanami','Homura','Shizuku','Tsubaki','Benika','Daigo','Rokuta'];
-const NAME_EVOLVE={slime:'rajaSlime',slimeAir:'rajaSlime',slimeRacun:'rajaSlime',slimeApi:'rajaSlime',elemSlime:'rajaSlime',goblin:'hob',gobShaman:'hob',kobold:'goblin',wolf:'shadowWolf',serigalaSalju:'shadowWolf',orc:'orcLord',zombie:'skel',kelelawar:'batroww',speedprey:'speedoraptor',beruang:'greatBear',bee:'queenBee',wyvern:'shadowWyvern',dodo:'agrooBird'};
 const NAMED_SAY=['Siap, Tuan!','Tuan memanggil?','Kerja, kerja!','Hari ini panen bagus.','Hamba jaga desa.','Nama ini… hangat.','Untuk Tuan!','Hehe, aku bisa bicara.'];
 function namedOf(o){ return G.units.filter(m=>!m.dead&&m.named&&m.tamer===o.id); }
 function clanOf(fid){ return G.units.filter(m=>!m.dead&&m.named&&m.named.clan===fid); }
@@ -6335,8 +6334,7 @@ function nameMonster(o,m,clan,born){
   m.task=null; m.path=[]; m.nest=null; m.flags={named:1}; m.fx=null; m.bornStep=G.step; m.kills=0; m.spouse=null; m.children=[];
   let evo='';
   if(!born){
-    const to=NAME_EVOLVE[m.mk];
-    if(to&&MON[to]){ const d=MON[to]; m.mk=to; m.maxHp=Math.round(d.hp*1.25); m.atk=d.atk*1.2; m.def=RANK_ORDER.indexOf(d.rank)*1.5+2; m.lvl=RANK_ORDER.indexOf(d.rank)*4+3; evo=`berevolusi menjadi ${d.n}`; }
+    if(EVO_NEXT[m.mk]&&MON[EVO_NEXT[m.mk]]&&!(evoStage(EVO_NEXT[m.mk])>=4)){ evolveUnit(m,true); m.maxHp=Math.round(m.maxHp*1.2); m.atk*=1.15; evo=`berevolusi menjadi ${MON[m.mk].n} (tahap ${evoStage(m.mk)})`; }
     else { m.maxHp=Math.round(m.maxHp*2); m.atk*=2; m.def=(m.def||0)*2+2; m.lvl+=4; evo='kekuatannya berlipat dua'; }
     (G.seen=G.seen||{})[m.mk]=1;
   }
@@ -6534,7 +6532,137 @@ function heroYearly(){
   }
 }
 function daily20(){ namedDaily(); }
-function yearly20(){ outcastYearly(); hamletYearly(); namedYearly(); heroYearly(); }
+function yearly20(){ outcastYearly(); hamletYearly(); namedYearly(); heroYearly(); evoYearly(); }
+
+/* =====================================================================
+   SIMULASI 21: tahap evolusi monster (tahap 2 hampir semua, sebagian
+   tahap 3, sedikit tahap 4). Evolusi lewat Penamaan, pengalaman tempur
+   hewan jinak/bernama, dan (jarang) monster liar yang sering membunuh.
+   ===================================================================== */
+// [kunci baru, asal, nama, peringkat, warna, mata, skala, deskripsi, tint(humanoid)]
+const EVO_NEW=[
+  ['slimeKaisar','rajaSlime','Kaisar Slime','A','#f0d060','#3a2a10',1.35,'Slime bermahkota cair yang menelan apa saja.'],
+  ['slimeDewa','slimeKaisar','Slime Dewa','S','#f8f8ff','#7fd8ff',1.6,'Gumpalan bercahaya yang konon pernah menelan seekor naga.'],
+  ['slimeOmbak','slimeAir','Slime Ombak','C','#3a78d8',null,1.15,'Bergulung seperti ombak dan menghantam lawan.'],
+  ['slimeWabah','slimeRacun','Slime Wabah','B','#6a2a8a',null,1.25,'Racunnya menyebar seperti penyakit.'],
+  ['slimeMagma','slimeApi','Slime Magma','B','#c82a1a','#ffd040',1.25,'Tubuhnya batu cair yang menyala.'],
+  ['slimePrisma','elemSlime','Slime Prisma','A','#e8e8ff','#ff6aff',1.3,'Memantulkan semua elemen sekaligus.'],
+  ['vampirBat','batroww','Kelelawar Vampir','A','#3a0a1a','#ff2a2a',1.35,'Menghisap darah dan nyawa lawannya.'],
+  ['koboldPrajurit','kobold','Kobold Prajurit','D',null,null,1.12,'Kobold yang sudah belajar memakai perisai.','#7a6a4a'],
+  ['koboldRaja','koboldPrajurit','Raja Kobold','B',null,null,1.3,'Memimpin ratusan kobold dari singgasana tulang.','#d8b040'],
+  ['hobLord','hob','Hobgoblin Lord','B',null,null,1.25,'Hobgoblin berzirah yang memimpin satu suku.','#5a7a3a'],
+  ['goblinKaisar','hobLord','Kaisar Goblin','A',null,null,1.45,'Goblin yang dihormati semua suku. Matanya penuh akal.','#d8a830'],
+  ['gobSage','gobShaman','Goblin Sage','B',null,null,1.2,'Dukun goblin yang menguasai sihir besar.','#4a8ad8'],
+  ['deathKnight','skel','Death Knight','B',null,null,1.25,'Kesatria mati yang bangkit dengan dendam.','#3a3a6a'],
+  ['rajaMayat','deathKnight','Raja Mayat','S',null,null,1.45,'Penguasa orang mati yang memerintah dari kuburan.','#6a2a8a'],
+  ['babiBaja','babi','Babi Bertaring Baja','C','#5a5a6a',null,1.15,'Taringnya sekeras besi tempaan.'],
+  ['rajaBabi','babiBaja','Raja Babi Hutan','B','#3a2a1a','#ff6a2a',1.4,'Seruduknya bisa merobohkan pagar kayu.'],
+  ['serigalaAlfa','wolf','Serigala Alfa','C','#6a6a74','#ff5a3a',1.15,'Pemimpin kawanan yang paling cerdik.'],
+  ['serigalaBulan','serigalaAlfa','Serigala Bulan','A','#c8d0e8','#7fd8ff',1.35,'Melolong dan kawanannya menjadi lebih kuat.'],
+  ['serigalaEs','serigalaSalju','Serigala Es Purba','B','#a8d8f0','#2a7aff',1.25,'Napasnya membekukan rumput.'],
+  ['serigalaHantu','shadowWolf','Serigala Hantu','A','#1a1a28','#ff40ff',1.3,'Muncul dan hilang di antara bayangan.'],
+  ['ratuLaba','spider','Ratu Laba-laba','B','#3a1a4a','#ff3a6a',1.3,'Jaringnya menutupi satu lembah.'],
+  ['arachne','ratuLaba','Arachne','A','#2a0a2a','#ffd040',1.5,'Laba-laba tua yang cerdik dan bisa bicara.'],
+  ['beruangPurba','greatBear','Beruang Purba','S','#5a3a1e','#ff8a2a',1.8,'Konon sudah hidup sejak hutan pertama tumbuh.'],
+  ['kadalNaga','lizard','Kadal Naga','B',null,null,1.2,'Manusia kadal bersisik keras seperti naga.','#3a8a5a'],
+  ['manusiaNaga','kadalNaga','Manusia Naga','A',null,null,1.38,'Keturunan naga yang berjalan tegak.','#c83a2a'],
+  ['rajaOrc','orcLord','Raja Orc','A',null,null,1.32,'Raja dari semua suku orc di pegunungan.','#8a2a1a'],
+  ['kaisarOrc','rajaOrc','Kaisar Orc','S',null,null,1.55,'Satu teriakannya membuat seribu orc maju perang.','#2a2a2a'],
+  ['mimikRaja','mimic','Raja Mimik','B','#c8a040',null,1.3,'Menyamar sebagai peti harta raksasa.'],
+  ['trollGunung','troll','Troll Gunung','A',null,null,1.3,'Kulitnya keras seperti tebing.','#6a7a8a'],
+  ['oni','ogre','Oni','A',null,null,1.25,'Ogre bertanduk yang memegang gada besi.','#c82a2a'],
+  ['rajaOni','oni','Raja Oni','S',null,null,1.45,'Penguasa para oni. Tawanya seperti guntur.','#2a2a6a'],
+  ['golemBesi','golem','Golem Besi','A',null,null,1.25,'Golem yang tubuhnya ditempa dari bijih besi.','#7a8a9a'],
+  ['golemMithril','golemBesi','Golem Mithril','S',null,null,1.42,'Berkilau perak, nyaris tak bisa dilukai.','#c8e8ff'],
+  ['minotaurRaja','minotaur','Raja Minotaur','S',null,null,1.3,'Penguasa labirin dengan kapak raksasa.','#5a1a1a'],
+  ['nagaMerahTua','redDragon','Naga Merah Tua','SS','#8a1a0a','#ffe060',1.9,'Napas apinya mencairkan batu.'],
+  ['banshee','arwah','Banshee','B','#e8c8f0',null,1.15,'Jeritannya membuat jantung berhenti sejenak.'],
+  ['wraithRaja','banshee','Raja Wraith','A','#4a3a6a','#ff3a6a',1.3,'Arwah yang memerintah arwah lain.'],
+  ['salamanderLava','salamander','Salamander Lava','B','#ff6a1a','#ffe060',1.25,'Meninggalkan jejak lava di tanah.'],
+  ['basiliskRaja','basilisk','Raja Basilisk','S','#2a5a2a','#ff3030',1.4,'Tatapannya mengubah lawan menjadi batu.'],
+  ['ratuHarpy','harpy','Ratu Harpy','B','#c86aa8',null,1.25,'Nyanyiannya memanggil badai.'],
+  ['pegasusLangit','pegasus','Pegasus Langit','A','#e8f0ff','#7fc8ff',1.3,'Berlari di atas awan.'],
+  ['treantPurba','treant','Treant Purba','A','#2a5a2a','#ffd040',1.3,'Akarnya menjalar sampai ke desa terdekat.'],
+  ['penjagaHutan','treantPurba','Penjaga Hutan Purba','S','#1a4a2a','#7fffa0',1.55,'Pohon hidup yang menjaga seluruh hutan.'],
+  ['yetiRaja','yeti','Raja Yeti','A','#f8f8ff','#5ad0ff',1.3,'Teriakannya memicu longsor salju.'],
+  ['griffinPerang','griffin','Griffin Perang','S','#8a5a2a','#ff6a2a',1.35,'Ditunggangi para ksatria langit zaman dulu.'],
+  ['manticoreRaja','manticore','Raja Manticore','S','#a83a1a','#ffd040',1.35,'Ekor kalajengkingnya sebesar tombak.'],
+  ['chimeraPurba','chimera','Chimera Purba','S','#8a6a2a','#ff3a3a',1.35,'Tiga kepala, tiga elemen.'],
+  ['cerberusNeraka','cerberus','Cerberus Neraka','S','#1a0a0a','#ff3a1a',1.35,'Penjaga gerbang yang tak pernah tidur.'],
+  ['hydraKuno','hydra','Hydra Kuno','SS','#1a4a3a','#ff6a2a',1.6,'Setiap kepala yang putus tumbuh dua.'],
+  ['agrooRaja','agrooBird','Raja Agroo','B','#2a5a8a','#ffd040',1.3,'Kakinya bisa menendang batu sebesar kepala.'],
+  ['raptorAlfa','speedoraptor','Raptor Alfa','A','#2a4a7a','#ff5a3a',1.55,'Memimpin kawanan raptor dalam perburuan.'],
+  ['nulleyePurba','nulleye','Nulleye Purba','S','#f8f0f8','#ff3a8a',1.6,'Matanya melihat semua yang bersembunyi.'],
+  ['nagaHijauTua','greenDragon','Naga Hijau Tua','SS','#1a5a2a','#ffe060',1.9,'Napas racunnya membusukkan satu hutan.'],
+  ['kongRaja','superKong','Raja Kong','SS','#3a2a1a','#ff3a2a',1.9,'Memukul dadanya dan gunung pun bergetar.'],
+  ['kaisarLebah','queenBee','Kaisar Lebah','A','#f0c010','#ff3a2a',1.75,'Satu sarang sebesar bukit tunduk padanya.'],
+  ['pickleDewasa','pickleDragon','Pickle Dragon Dewasa','A','#5a9a3a','#ffe060',1.4,'Masih bau acar, tapi apinya sudah sungguhan.'],
+  ['kangarooJuara','jugglerKangaroo','Kangaroo Juara','A','#c8703a','#2a2a2a',1.35,'Juara tinju dari padang rumput.'],
+  ['harimauGrandmaster','martialTiger','Harimau Grandmaster','S','#f8f0e0','#9aff5a',1.4,'Menguasai seribu jurus cakar.'],
+];
+// rantai: kunci → tahap berikutnya
+const EVO_NEXT={
+  slime:'rajaSlime',rajaSlime:'slimeKaisar',slimeKaisar:'slimeDewa',slimeAir:'slimeOmbak',slimeOmbak:'slimeKaisar',slimeRacun:'slimeWabah',slimeApi:'slimeMagma',elemSlime:'slimePrisma',
+  kelelawar:'batroww',batroww:'vampirBat',kobold:'koboldPrajurit',koboldPrajurit:'koboldRaja',
+  goblin:'hob',hob:'hobLord',hobLord:'goblinKaisar',gobShaman:'gobSage',
+  zombie:'skel',skel:'deathKnight',deathKnight:'rajaMayat',
+  babi:'babiBaja',babiBaja:'rajaBabi',wolf:'serigalaAlfa',serigalaAlfa:'serigalaBulan',serigalaSalju:'serigalaEs',shadowWolf:'serigalaHantu',
+  spider:'ratuLaba',ratuLaba:'arachne',beruang:'greatBear',greatBear:'beruangPurba',
+  lizard:'kadalNaga',kadalNaga:'manusiaNaga',orc:'orcLord',orcLord:'rajaOrc',rajaOrc:'kaisarOrc',mimic:'mimikRaja',
+  troll:'trollGunung',ogre:'oni',oni:'rajaOni',golem:'golemBesi',golemBesi:'golemMithril',minotaur:'minotaurRaja',
+  wyvern:'redDragon',redDragon:'nagaMerahTua',shadowWyvern:'nagaBayangan',
+  arwah:'banshee',banshee:'wraithRaja',salamander:'salamanderLava',cockatrice:'basilisk',basilisk:'basiliskRaja',harpy:'ratuHarpy',
+  pegasus:'pegasusLangit',treant:'treantPurba',treantPurba:'penjagaHutan',yeti:'yetiRaja',griffin:'griffinPerang',manticore:'manticoreRaja',chimera:'chimeraPurba',cerberus:'cerberusNeraka',hydra:'hydraKuno',
+  dodo:'agrooBird',agrooBird:'agrooRaja',speedprey:'speedoraptor',speedoraptor:'raptorAlfa',raptorAlfa:'tyrvern',
+  nulleye:'nulleyePurba',greenDragon:'nagaHijauTua',superKong:'kongRaja',bee:'queenBee',queenBee:'kaisarLebah',
+  pickleDragon:'pickleDewasa',pickleDewasa:'greenDragon',jugglerKangaroo:'kangarooJuara',martialTiger:'harimauGrandmaster',
+};
+(function buildEvo(){
+  for(const [k,from,n,rank,c,eye,sc,d,tint] of EVO_NEW){
+    const b=MON[from]; if(!b||MON[k]) continue;
+    const m=Object.assign({},b,{n,rank,d,sc,evolved:1}); delete m.legend;
+    m.hp=Math.round(b.hp*2.1); m.atk=Math.round(b.atk*1.65); m.xp=Math.round((b.xp||10)*2.2); m.bounty=Math.round((b.bounty||5)*2);
+    if(c) m.c=c; if(eye) m.eye=eye; if(tint) m.tint=tint;
+    if(b.skills) m.skills=b.skills.map(s=>Object.assign({},s,s.dmg?{dmg:s.dmg*1.25}:{}));
+    MON[k]=m; if(typeof MON_DROP!=='undefined'&&MON_DROP[from]&&!MON_DROP[k]) MON_DROP[k]=MON_DROP[from];
+  }
+  // tahap: dihitung dari akar rantai
+  const prev={}; for(const [a,b] of Object.entries(EVO_NEXT)) (prev[b]=prev[b]||[]).push(a);
+  const memo={}; function st0(k){ if(memo[k]) return memo[k]; memo[k]=1; const p=prev[k]; memo[k]=p?1+Math.max(...p.map(st0)):1; return memo[k]; }
+  for(const k of Object.keys(MON)) if(prev[k]||EVO_NEXT[k]) MON[k].evo=st0(k);
+})();
+function evoStage(mk){ return MON[mk]&&MON[mk].evo||1; }
+function evoMax(mk){ let s=evoStage(mk), k=mk, n=0; while(EVO_NEXT[k]&&n<6){ k=EVO_NEXT[k]; s=evoStage(k); n++; } return s; }
+/* ganti spesies dengan mempertahankan kekuatan yang sudah didapat */
+function evolveUnit(m,quiet,why){
+  const to=EVO_NEXT[m.mk]; if(!to||!MON[to]) return false;
+  const a=MON[m.mk], d=MON[to];
+  const hpR=m.maxHp/Math.max(1,a.hp), atkR=m.atk/Math.max(1,a.atk);
+  const from=a.n; m.mk=to;
+  m.maxHp=Math.round(d.hp*Math.max(1,hpR)); m.atk=d.atk*Math.max(1,atkR); m.hp=m.maxHp; m.def=Math.max(m.def||0,RANK_ORDER.indexOf(d.rank)*1.5+1); m.lvl=Math.max(m.lvl+3,RANK_ORDER.indexOf(d.rank)*4+1);
+  if(m.petName) m.name=`${m.petName} si ${d.n}`; else if(m.name===from) m.name=d.n;
+  m.evoPts=0; (G.seen=G.seen||{})[to]=1;
+  FX_QUEUE.push({k:'pillar',x:m.x,y:m.y,s:Math.min(5,evoStage(to)+1),t:80}); FX_QUEUE.push({k:'lvl',x:m.x,y:m.y,t:40});
+  if(!quiet){ const o=m.tamer&&U(m.tamer); const st=evoStage(to);
+    log(`${m.petName?m.petName+', '+from+(o?' milik '+o.name:''):'Seekor '+from+' liar'}${why?' '+why:''} berevolusi menjadi ${d.n} (tahap ${st}, peringkat ${d.rank})!${st>=4?' Evolusi tahap akhir yang sangat langka.':''}`,st>=3||RANK_ORDER.indexOf(d.rank)>=6?'hero':'life',{x:m.x,y:m.y}); }
+  return true;
+}
+/* poin evolusi: hewan jinak & monster bernama dari bertarung; bernama juga dari waktu */
+function evoNeed(m){ const s=evoStage(m.mk); return 6+s*s*5+RANK_ORDER.indexOf(MON[m.mk].rank)*2; }
+function evoGain(m,n){
+  if(!EVO_NEXT[m.mk]||MON[m.mk].legend) return;
+  m.evoPts=(m.evoPts||0)+n;
+  const next=EVO_NEXT[m.mk]; const s2=evoStage(next);
+  if(s2>=4&&!m.named) return; // tahap 4 hanya untuk yang bernama
+  if(m.evoPts>=evoNeed(m)&&rnd()<(s2>=4?.25:s2===3?.5:.8)) evolveUnit(m,false,'yang terus bertarung');
+}
+/* monster liar yang sering memakan korban kadang berevolusi ke tahap 2 */
+function wildEvo(m){
+  if(m.tamer||m.flags.den||m.flags.warband||yearInt()<5) return;
+  if(evoStage(m.mk)!==1||!EVO_NEXT[m.mk]||(m.kills||0)<4) return;
+  if(rnd()<.18) evolveUnit(m,false,`yang sudah memangsa ${m.kills} korban`);
+}
+function evoYearly(){ for(const m of G.units) if(!m.dead&&m.named) evoGain(m,2); }
 
 /* ================= SPRITE PIKSEL ================= */
 
@@ -7793,12 +7921,13 @@ function drawWorld(){
       if(u.flip){ g.translate(Math.round(it.x)*2,0); g.scale(-1,1); }
       if(u.flags.haul&&u.flags.haul.phase==='back'){ const hm=MON[u.flags.haul.mk]; drawLying(g,monSprite({k:hm.k,c:hm.c,race:hm.race,job:hm.job,eye:hm.eye},0),it.x+(u.flip?16:-16),it.y,u.flip,0); }
       if(u.hq&&G.hv){ const gq=G.hv.groups.find(x=>x.id===u.hq); if(gq&&gq.carcass&&gq.leader===u.id){ const cm=MON[gq.carcass.mk]; drawLying(g,monSprite({k:cm.k,c:cm.c,race:cm.race,job:cm.job,eye:cm.eye},0),it.x+(u.flip?14:-14),it.y,u.flip,0); } }
-      { const V=u.variant&&VARIANTS[u.variant]; const vs=V&&V.tint?tintSprite(spr,V.tint,'V|'+u.mk+'|'+u.variant+'|'+fr):spr; const sc=(u.race==='monster'&&MON[u.mk]&&MON[u.mk].sc||1)*(V&&V.scale||1);
+      { const V=u.variant&&VARIANTS[u.variant]; const MT=u.race==='monster'&&MON[u.mk]&&MON[u.mk].tint; const vs=V&&V.tint?tintSprite(spr,V.tint,'V|'+u.mk+'|'+u.variant+'|'+fr):MT?tintSprite(spr,MT,'E|'+u.mk+'|'+fr):spr; const sc=(u.race==='monster'&&MON[u.mk]&&MON[u.mk].sc||1)*(V&&V.scale||1);
         if(sc!==1) g.drawImage(vs,Math.round(it.x)-FX*sc,Math.round(it.y)-FY*sc,vs.width*sc,vs.height*sc); else g.drawImage(vs,Math.round(it.x)-FX,Math.round(it.y)-FY); }
       g.restore();
       if(u.ally){ const al=allyOf(u); if(al){ const bx=Math.round(it.x)+3, by=Math.round(it.y)-40; g.fillStyle='#4a3020'; g.fillRect(bx,by,1,9); g.fillStyle=al.color; g.fillRect(bx+1,by,5,4); g.fillStyle='#1a1410'; g.fillRect(bx+3,by+1,1,2); } }
       if(u.hq){ const qx=Math.round(it.x)-2, qy=Math.round(it.y)-37; g.fillStyle='#f0e0b0'; g.fillRect(qx,qy,5,6); g.fillStyle='#8a5a2a'; g.fillRect(qx,qy,5,1); g.fillRect(qx,qy+5,5,1); g.fillStyle='#c0302a'; g.fillRect(qx+2,qy+1,1,2); g.fillRect(qx+2,qy+4,1,1); }
       if(u.mk==='chaoticDragon'){ const t0=performance.now()/120; for(let i=0;i<10;i++){ const a=t0*.3+i*.63, r=18+Math.sin(t0+i)*6; g.fillStyle=i%2?'rgba(170,70,255,.75)':'rgba(90,20,160,.6)'; g.fillRect(Math.round(it.x+Math.cos(a)*r*1.4),Math.round(it.y-22+Math.sin(a)*r),2,2); } }
+      if(u.race==='monster'&&MON[u.mk]&&MON[u.mk].evo>=3){ const s=MON[u.mk].evo, t0=performance.now()/200, h=(['hum','wyvern','bear'].includes(MON[u.mk].k)?28:16)*(MON[u.mk].sc||1); for(let i=0;i<(s>=4?6:3);i++){ const a=t0+i*2.1; g.fillStyle=s>=4?(i%2?'#e0a0ff':'#ffffff'):'#ffd860'; g.fillRect(Math.round(it.x+Math.cos(a)*9),Math.round(it.y-h*.6+Math.sin(a)*h*.35),1,1); } }
       if(u.isekai&&fr%3===0){ g.fillStyle='#8ad8ff'; g.fillRect(Math.round(it.x)+5,Math.round(it.y)-29,1,1); }
       if((u.corrupt||0)>=50&&fr%2===0){ g.fillStyle='rgba(150,70,220,.85)'; g.fillRect(Math.round(it.x)-1,Math.round(it.y)-(u.mounted?34:27),2,2); }
       if(u.tamer){ const o=U(u.tamer); const k=o&&K(o.kingdom); g.fillStyle=k?k.color:'#7fc98a'; g.fillRect(Math.round(it.x)-2,Math.round(it.y)-3,4,1); }
@@ -8227,7 +8356,7 @@ function renderDetail(b){
   if(s.type==='unit'){
     const u=U(s.id)||G.grave[s.id]; if(!u){ b.innerHTML='<p class="empty">Tidak ditemukan.</p>'; return; }
     if(u.race==='monster'){ const m=MON[u.mk]; const o=u.tamer&&U(u.tamer);
-      b.innerHTML=`<div class="card"><h3>${esc(u.name)}</h3><p class="sub" style="margin:0">${esc(m.d||'')}</p><dl class="kv"><dt>Golongan</dt><dd>${m.legend?'<b style="color:var(--gold)">Makhluk Legenda</b> · ':''}${m.sea?'Penghuni laut · ':''}${m.demon?'<span style="color:#ff9aa8">Pasukan Raja Iblis</span>':u.named?'<span style="color:#8ad8ff">Monster bernama</span> · bisa bicara & bekerja':o?'Hewan jinak':u.flags&&u.flags.wasNamed?'Dulu bernama, kini liar kembali':'Monster liar'}</dd>${u.variant?`<dt>Subspesies</dt><dd style="color:${VARIANTS[u.variant].tint||'var(--gold)'}">${VARIANTS[u.variant].n}${VARIANTS[u.variant].onHit?' · '+DEBUFF_N[VARIANTS[u.variant].onHit.k]+' '+Math.round(VARIANTS[u.variant].onHit.p*100)+'%':''}</dd>`:''}<dt>Peringkat bahaya</dt><dd>${m.rank}</dd>${o?`<dt>Tuan</dt><dd>${personLink(o.id)}</dd>`:''}${u.named?`<dt>Dinamai</dt><dd>${personLink(u.named.clan)} · th ${u.named.since}${u.named.guard?' · pengawal pribadi':' · bekerja di desa'}</dd><dt>Jenis kelamin</dt><dd>${u.sex==='f'?'Betina':'Jantan'}${u.spouse&&U(u.spouse)?' · pasangan '+esc(U(u.spouse).petName||U(u.spouse).name):''}${(u.children||[]).length?' · '+u.children.length+' anak':''}</dd>`:''}<dt>Nyawa</dt><dd>${Math.max(0,Math.round(u.hp))}/${u.maxHp}${m.regen?' · beregenerasi':''}${m.armor?' · berzirah':''}</dd><dt>Serangan</dt><dd>${Math.round(u.atk)}${m.ranged?' · jarak jauh':''}${m.splash?' · ledakan kecil':''}${m.drain?' · menghisap nyawa':''}</dd>${m.onHit?`<dt>Efek pukulan</dt><dd>${DEBUFF_N[m.onHit.k]} (${Math.round(m.onHit.p*100)}%)</dd>`:''}${m.skills?`<dt>Jurus</dt><dd>${m.skills.map(s=>SKILL_TXT[s.k](s)).join('<br>')}</dd>`:''}${fxList(u)?`<dt>Status</dt><dd>${fxList(u)}</dd>`:''}<dt>${o?'Monster dikalahkan':'Korban'}</dt><dd>${u.kills||0}</dd>${m.beast&&!o?'<dt>Bisa dijinakkan</dt><dd>Ya, oleh penjinak saat nyawanya di bawah 45%</dd>':''}</dl><div class="row"><button class="btn warn" data-act="petir">Sambar petir</button></div></div>`; return; }
+      b.innerHTML=`<div class="card"><h3>${esc(u.name)}</h3><p class="sub" style="margin:0">${esc(m.d||'')}</p><dl class="kv"><dt>Golongan</dt><dd>${m.legend?'<b style="color:var(--gold)">Makhluk Legenda</b> · ':''}${m.sea?'Penghuni laut · ':''}${m.demon?'<span style="color:#ff9aa8">Pasukan Raja Iblis</span>':u.named?'<span style="color:#8ad8ff">Monster bernama</span> · bisa bicara & bekerja':o?'Hewan jinak':u.flags&&u.flags.wasNamed?'Dulu bernama, kini liar kembali':'Monster liar'}</dd>${u.variant?`<dt>Subspesies</dt><dd style="color:${VARIANTS[u.variant].tint||'var(--gold)'}">${VARIANTS[u.variant].n}${VARIANTS[u.variant].onHit?' · '+DEBUFF_N[VARIANTS[u.variant].onHit.k]+' '+Math.round(VARIANTS[u.variant].onHit.p*100)+'%':''}</dd>`:''}<dt>Peringkat bahaya</dt><dd>${m.rank}</dd>${m.evo?`<dt>Tahap evolusi</dt><dd>${'◆'.repeat(m.evo)}${'◇'.repeat(Math.max(0,evoMax(u.mk)-m.evo))} tahap ${m.evo}/${evoMax(u.mk)}${EVO_NEXT[u.mk]&&MON[EVO_NEXT[u.mk]]?` · berikutnya <b>${esc(MON[EVO_NEXT[u.mk]].n)}</b> (${MON[EVO_NEXT[u.mk]].rank})${u.tamer?` · ${Math.floor(u.evoPts||0)}/${evoNeed(u)} poin`:''}`:' · tahap akhir'}</dd>`:''}${o?`<dt>Tuan</dt><dd>${personLink(o.id)}</dd>`:''}${u.named?`<dt>Dinamai</dt><dd>${personLink(u.named.clan)} · th ${u.named.since}${u.named.guard?' · pengawal pribadi':' · bekerja di desa'}</dd><dt>Jenis kelamin</dt><dd>${u.sex==='f'?'Betina':'Jantan'}${u.spouse&&U(u.spouse)?' · pasangan '+esc(U(u.spouse).petName||U(u.spouse).name):''}${(u.children||[]).length?' · '+u.children.length+' anak':''}</dd>`:''}<dt>Nyawa</dt><dd>${Math.max(0,Math.round(u.hp))}/${u.maxHp}${m.regen?' · beregenerasi':''}${m.armor?' · berzirah':''}</dd><dt>Serangan</dt><dd>${Math.round(u.atk)}${m.ranged?' · jarak jauh':''}${m.splash?' · ledakan kecil':''}${m.drain?' · menghisap nyawa':''}</dd>${m.onHit?`<dt>Efek pukulan</dt><dd>${DEBUFF_N[m.onHit.k]} (${Math.round(m.onHit.p*100)}%)</dd>`:''}${m.skills?`<dt>Jurus</dt><dd>${m.skills.map(s=>SKILL_TXT[s.k](s)).join('<br>')}</dd>`:''}${fxList(u)?`<dt>Status</dt><dd>${fxList(u)}</dd>`:''}<dt>${o?'Monster dikalahkan':'Korban'}</dt><dd>${u.kills||0}</dd>${m.beast&&!o?'<dt>Bisa dijinakkan</dt><dd>Ya, oleh penjinak saat nyawanya di bawah 45%</dd>':''}</dl><div class="row"><button class="btn warn" data-act="petir">Sambar petir</button></div></div>`; return; }
     if(u.dead&&!U(u.id)){ const be=BERKAT[u.b]; b.innerHTML=`<div class="card"><h3>${esc((u.title?u.title+' ':'')+u.name+' '+(u.marga||''))} †</h3><dl class="kv"><dt>Ras</dt><dd>${RACE[u.race].nama}</dd><dt>Berkat</dt><dd><span class="stars" style="color:${starCol(be.s)}">${stars(be.s)}</span> ${esc(be.n)}</dd><dt>Wafat</dt><dd>Tahun ${u.diedY}, ${esc(u.cause)}</dd><dt>Level</dt><dd>${u.lvl}</dd><dt>Orang tua</dt><dd>${u.mother?personLink(u.mother):'-'}, ${u.father?personLink(u.father):'-'}</dd><dt>Pasangan</dt><dd>${u.spouse?personLink(u.spouse):'-'}</dd><dt>Anak</dt><dd>${u.children.length?u.children.map(personLink).join(', '):'-'}</dd></dl>${u.hist&&u.hist.length?`<ul class="log">${u.hist.map(h=>`<li>${esc(h)}</li>`).join('')}</ul>`:''}</div>`; return; }
     const be=BERKAT[u.b], k=K(u.kingdom), t=TN(u.town), h=B(u.home);
     const st=stageOf(u), age=Math.floor(ageOf(u));
